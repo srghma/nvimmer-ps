@@ -14,96 +14,97 @@ end
 
 -- Function to request a command from the PureScript language server
 local function request_command(command, arguments, callback)
-	local clients = vim.lsp.get_clients { name = "purescriptls" }
+	local clients =
+			vim.lsp.get_clients { name = "purescriptls", bufnr = vim.api.nvim_get_current_buf() }
+	if #clients == 0 then
+		print("No active clients for purescriptls")
+		return
+	end
+
 	for _, client in ipairs(clients) do
+		print_inspect_to_file {
+			command = command or "No command",
+			arguments = arguments or "No arguments",
+		}
+
 		client.request("workspace/executeCommand", {
 			command = command,
 			arguments = arguments,
 		}, function(err, result, ctx)
-			print_inspect_to_file { err = err, result = result, ctx = ctx }
+			print_inspect_to_file {
+				err = err or "No error",
+				result = result or "No result",
+				ctx = ctx or "No context",
+			}
+			if err then print("Error in request_command: " .. vim.inspect(err)) end
 			if callback then callback(err, result, ctx) end
 		end)
 	end
 end
 
--- Function to get the identifier at cursor
-local function get_identifier_at_cursor()
-	local word = vim.fn.expand("<cword>") -- You might want to implement more sophisticated logic here
-	-- to determine if the word is a qualified import
-	local parts = vim.split(word, "%.")
-	if #parts > 1 then
-		return { module = table.concat(parts, ".", 1, #parts - 1), identifier = parts[#parts] }
-	else
-		return { identifier = word }
-	end
-end
+-- function M.add_import(...)
+-- 	local args = { ... }
+-- 	local name = #args == 0 and vim.fn.expand("<cword>") or args[1]
+-- 	local module = args[2] or vim.NIL
 
--- Papply command
-function M.apply_code_action() vim.lsp.buf.code_action() end
+-- 	request_command(
+-- 		"purescript.addCompletionImport",
+-- 		{ name, module, vim.NIL, "file://" .. vim.fn.expand("%:p") },
+-- 		function(err, result)
+-- 			if err then
+-- 				print("Error adding import: " .. vim.inspect(err))
+-- 				return
+-- 			end
+-- 			if result and type(result) == "table" then
+-- 				-- Handle ambiguous imports using vim.ui.select
+-- 				vim.ui.select(result, {
+-- 					prompt = "Select import:",
+-- 					format_item = function(item) return item end,
+-- 				}, function(choice)
+-- 					if choice then M.add_import(name, choice) end
+-- 				end)
+-- 			end
+-- 		end
+-- 	)
+-- end
 
-function M.add_import(...)
-	local args = { ... }
-	local name = #args == 0 and vim.fn.expand("<cword>") or args[1]
-	local module = args[2] or vim.NIL
+-- function M.add_module_import()
+-- 	-- First, get available modules
+-- 	request_command("purescript.getAvailableModules", {}, function(err, modules)
+-- 		if err then
+-- 			print("Error getting available modules: " .. vim.inspect(err))
+-- 			return
+-- 		end
 
-	request_command(
-		"purescript.addCompletionImport",
-		{ name, module, vim.NIL, "file://" .. vim.fn.expand("%:p") },
-		function(err, result)
-			if err then
-				print("Error adding import: " .. vim.inspect(err))
-				return
-			end
-			if result and type(result) == "table" then
-				-- Handle ambiguous imports using vim.ui.select
-				vim.ui.select(result, {
-					prompt = "Select import:",
-					format_item = function(item) return item end,
-				}, function(choice)
-					if choice then M.add_import(name, choice) end
-				end)
-			end
-		end
-	)
-end
+-- 		-- Allow user to select a module
+-- 		vim.ui.select(modules, {
+-- 			prompt = "Select module to import:",
+-- 			format_item = function(item) return item end,
+-- 		}, function(selected_module)
+-- 			if not selected_module then return end
 
-function M.add_module_import()
-	-- First, get available modules
-	request_command("purescript.getAvailableModules", {}, function(err, modules)
-		if err then
-			print("Error getting available modules: " .. vim.inspect(err))
-			return
-		end
+-- 			-- Get the current file's URI
+-- 			local uri = vim.uri_from_bufnr(0)
 
-		-- Allow user to select a module
-		vim.ui.select(modules, {
-			prompt = "Select module to import:",
-			format_item = function(item) return item end,
-		}, function(selected_module)
-			if not selected_module then return end
+-- 			-- Get the identifier at cursor
+-- 			local at_cursor = get_identifier_at_cursor()
+-- 			local qualifier = at_cursor.module or vim.NIL
 
-			-- Get the current file's URI
-			local uri = vim.uri_from_bufnr(0)
-
-			-- Get the identifier at cursor
-			local at_cursor = get_identifier_at_cursor()
-			local qualifier = at_cursor.module or vim.NIL
-
-			-- Add the module import
-			request_command(
-				"purescript.addModuleImport",
-				{ selected_module, qualifier, uri },
-				function(add_err, add_result)
-					if add_err then
-						print("Error adding module import: " .. vim.inspect(add_err))
-					else
-						print("Module import added successfully")
-					end
-				end
-			)
-		end)
-	end)
-end
+-- 			-- Add the module import
+-- 			request_command(
+-- 				"purescript.addModuleImport",
+-- 				{ selected_module, qualifier, uri },
+-- 				function(add_err, add_result)
+-- 					if add_err then
+-- 						print("Error adding module import: " .. vim.inspect(add_err))
+-- 					else
+-- 						print("Module import added successfully")
+-- 					end
+-- 				end
+-- 			)
+-- 		end)
+-- 	end)
+-- end
 
 -- Pbuild command
 function M.build() request_command("purescript.build", {}) end
@@ -117,80 +118,71 @@ function M.stop() request_command("purescript.stopPscIde", {}) end
 -- Prestart command
 function M.restart() request_command("purescript.restartPscIde", {}) end
 
--- Psearch command
-function M.search(identifier)
-	request_command("purescript.search", { identifier }, function(err, result)
-		if err then
-			print("Error searching: " .. vim.inspect(err))
-			return
-		end
-		if result and type(result) == "table" then
-			local lines = {}
-			for _, item in ipairs(result) do
-				table.insert(lines, string.format("module %s where", item.mod))
-				table.insert(lines, string.format("  %s :: %s", item.identifier, item.typ))
-				table.insert(lines, "")
-			end
-			-- You might want to implement a custom preview function here
-			-- For now, we'll just print the results
-			print(table.concat(lines, "\n"))
-		else
-			print("No results found")
-		end
-	end)
-end
+-- -- Psearch command
+-- function M.search(identifier)
+-- 	request_command("purescript.search", { identifier }, function(err, result)
+-- 		if err then
+-- 			print("Error searching: " .. vim.inspect(err))
+-- 			return
+-- 		end
+-- 		if result and type(result) == "table" then
+-- 			local lines = {}
+-- 			for _, item in ipairs(result) do
+-- 				table.insert(lines, string.format("module %s where", item.mod))
+-- 				table.insert(lines, string.format("  %s :: %s", item.identifier, item.typ))
+-- 				table.insert(lines, "")
+-- 			end
+-- 			-- You might want to implement a custom preview function here
+-- 			-- For now, we'll just print the results
+-- 			print(table.concat(lines, "\n"))
+-- 		else
+-- 			print("No results found")
+-- 		end
+-- 	end)
+-- end
 
 -- addIdentImport command
-function M.add_ident_import()
+function M.add_explicit_import()
 	local uri = vim.uri_from_bufnr(0)
 	local at_cursor = get_identifier_at_cursor()
 	local default_ident = at_cursor.identifier or ""
-	local qualifier = at_cursor.module
+	local qualifier = at_cursor.module or nil
+	local module = nil
+	local namespace = ""
 
 	vim.ui.input({
 		prompt = "Identifier: ",
 		default = default_ident,
 	}, function(ident)
 		if not ident or ident == "" then return end
-		M.add_ident_import_mod(ident, qualifier, uri)
-	end)
-end
 
-function M.add_ident_import_mod(ident, qualifier, uri, mod)
-	request_command(
-		"purescript.addCompletionImport",
-		{ ident, mod or vim.NIL, qualifier or vim.NIL, uri },
-		function(err, result)
-			if err then
-				print("Error adding import: " .. vim.inspect(err))
-				return
+		request_command(
+			"purescript.addCompletionImport",
+			{ ident, module, qualifier, uri, namespace },
+			function(err, result)
+				if err then
+					print("Error adding import: " .. vim.inspect(err))
+					return
+				end
+				if result and type(result) == "table" and #result > 0 then
+					-- Multiple modules provide this identifier, let user choose
+					require("telescope.builtin").find_files {
+						prompt_title = "Select module for " .. ident .. ":",
+						find_command = { "echo", unpack(result) },
+						attach_mappings = function(prompt_bufnr, map)
+							map("i", "<CR>", function()
+								local selection = require("telescope.actions.state").get_selected_entry()
+								require("telescope.actions").close(prompt_bufnr)
+								if selection then M.add_ident_import_mod(ident, qualifier, uri, selection.value) end
+							end)
+							return true
+						end,
+					}
+				else
+					print("Import added successfully")
+				end
 			end
-			if result and type(result) == "table" and #result > 0 then
-				-- Multiple modules provide this identifier, let user choose
-				vim.ui.select(result, {
-					prompt = "Select module for " .. ident .. ":",
-					format_item = function(item) return item end,
-				}, function(selected_mod)
-					if selected_mod then M.add_ident_import_mod(ident, qualifier, uri, selected_mod) end
-				end)
-			else
-				print("Import added successfully")
-			end
-		end
-	)
-end
-
--- Pcommand command
-function M.execute_command(...)
-	local args = { ... }
-	local command = table.remove(args, 1)
-	request_command(command, args, function(err, result)
-		if err then
-			print("Error executing command: " .. vim.inspect(err))
-		else
-			print("Command executed successfully")
-			print_inspect_to_file(result)
-		end
+		)
 	end)
 end
 
@@ -212,22 +204,31 @@ local function get_active_pos_info()
 end
 
 -- Case Split command
+-- TODO: SOME ERROR in the LSP, DOESNT WORK
 function M.case_split()
 	local info = get_active_pos_info()
 	vim.ui.input({ prompt = "Parameter type: " }, function(ty)
-		if ty then
-			request_command(
-				"purescript.caseSplit",
-				{ info.uri, info.pos.line, info.pos.character, ty },
-				function(err, result)
-					if err then
-						print("Error in case split: " .. vim.inspect(err))
-					else
-						print("Case split applied successfully")
-					end
-				end
-			)
+		print_inspect_to_file {
+			command = "purescript.caseSplit-explicit",
+			arguments = { info.uri, info.pos.line, info.pos.character, ty },
+		}
+
+		if not ty then
+			print("No type provided")
+			return
 		end
+
+		request_command(
+			"purescript.caseSplit-explicit",
+			{ info.uri, info.pos.line, info.pos.character, ty },
+			function(err, _result)
+				if err then
+					print("Error in case split: " .. vim.inspect(err))
+					return
+				end
+				print("Case split applied successfully")
+			end
+		)
 	end)
 end
 
@@ -235,9 +236,9 @@ end
 function M.add_clause()
 	local info = get_active_pos_info()
 	request_command(
-		"purescript.addClause",
+		"purescript.addClause-explicit",
 		{ info.uri, info.pos.line, info.pos.character },
-		function(err, result)
+		function(err, _result)
 			if err then
 				print("Error adding clause: " .. vim.inspect(err))
 			else
@@ -247,127 +248,140 @@ function M.add_clause()
 	)
 end
 
--- Typed Hole command
--- function M.typed_hole(args)
--- 	if #args < 3 then
--- 		print("Insufficient arguments for typed hole")
--- 		return
--- 	end
---
--- 	local name = args[1]
--- 	local uri = args[2]
--- 	local range = args[3]
--- 	local type_infos = vim.list_slice(args, 4)
---
--- 	local items = {}
--- 	for _, info in ipairs(type_infos) do
--- 		table.insert(items, {
--- 			description = info.module,
--- 			detail = info.type,
--- 			label = info.identifier
--- 		})
--- 	end
---
--- 	vim.ui.select(items, {
--- 		prompt = "Filter hole suggestions for " .. name,
--- 		format_item = function(item)
--- 			return string.format("%s: %s (%s)", item.label, item.detail, item.description)
--- 		end
--- 	}, function(choice, idx)
--- 		if choice then
--- 			request_command('purescript.typedHole-explicit',
--- 				{ name, uri, range, type_infos[idx] },
--- 				function(err, result)
--- 					if err then
--- 						print("Error applying typed hole suggestion: " .. vim.inspect(err))
--- 					else
--- 						print("Typed hole suggestion applied successfully")
--- 					end
--- 				end
--- 			)
--- 		end
--- 	end)
--- end
+function M.setup_on_init(client)
+	client.commands["purescript.typedHole"] = function(command, _ctx)
+		local hole_name, uri, range = unpack(command.arguments)
+		local type_infos = { select(4, unpack(command.arguments)) }
 
----------------------------
--- Helper function to parse hole information
-local function parse_hole_info(info)
-	local name = info:match("Hole '(%w+)' inferred type:")
-	local suggestions = {}
+		vim.validate {
+			hole_name = { hole_name, "s" },
+			uri = { uri, "s" },
+			range = { range, "t" },
+			type_infos = { type_infos, "t" },
+		}
 
-	for suggestion in info:gmatch("(%w+)%s+::%s+([%w%s%.%->%(%)]+)%s+%-%s+(%w+)") do
-		local identifier, type, module =
-				suggestion:match("(%w+)%s+::%s+([%w%s%.%->%(%)]+)%s+%-%s+(%w+)")
-		table.insert(suggestions, { identifier = identifier, type = type, module = module })
+		for _, type_info in ipairs(type_infos) do
+			vim.validate {
+				-- example:
+				-- declarationType = vim.empty_dict(),
+				-- definedAt = vim.empty_dict(),
+				-- documentation = vim.empty_dict(),
+				-- expandedType = {
+				-- 	value0 = "∀ (@f ∷ Type -> Type) (a ∷ Type). Plus f ⇒ f a"
+				-- },
+				-- exportedFrom = { "Control.Plus" },
+				-- identifier = "empty",
+				-- ["module'"] = "Control.Plus",
+				-- ["type'"] = "∀ (@f ∷ Type -> Type) (a ∷ Type). Plus f ⇒ f a"
+
+				declarationType = { type_info.declarationType, "t" },
+				definedAt = { type_info.definedAt, "t" },
+				documentation = { type_info.documentation, "t" },
+				expandedType = { type_info.expandedType, "t" },
+				exportedFrom = { type_info.exportedFrom, "t" },
+				identifier = { type_info.identifier, "s" },
+				["module'"] = { type_info["module'"], "s" },
+				["type'"] = { type_info["type'"], "s" },
+			}
+		end
+
+		-- Use Telescope to display the suggestions
+		require("telescope.pickers")
+				.new({}, {
+					prompt_title = "Select Typed Hole Suggestions for " .. hole_name,
+					finder = require("telescope.finders").new_table {
+						results = type_infos,
+						entry_maker = function(type_info)
+							return {
+								value = type_info,
+								display = function()
+									-- Format the display for each entry
+									local lines = {
+										string.format("Identifier: %s", type_info.identifier),
+										string.format("From: %s", type_info["module'"]),
+										string.format("Type: %s", type_info["type'"]),
+									}
+									if type_info.documentation then
+										table.insert(lines, string.format("Documentation: %s", type_info.documentation))
+									end
+									return table.concat(lines, "\n")
+								end,
+								ordinal = type_info.identifier, -- For sorting
+							}
+						end,
+					},
+					attach_mappings = function(_, map)
+						map("i", "<CR>", function(prompt_bufnr)
+							local selection = require("telescope.actions.state").get_selected_entry()
+							require("telescope.actions").close(prompt_bufnr)
+
+							-- Call the typedHole-explicit command with the selected choice
+							request_command(
+								"purescript.typedHole-explicit",
+								{ selection.value.identifier, uri, range, selection.value },
+								function(err, result)
+									if err then
+										print("Error applying typed hole suggestion: " .. vim.inspect(err))
+									else
+										print("Typed hole suggestion applied successfully" .. vim.inspect(result))
+									end
+								end
+							)
+						end)
+						return true
+					end,
+				})
+				:find()
+	end
+end
+
+function M.setup_on_attach(_client, bufnr)
+	vim.lsp.set_log_level("debug")
+
+	local function set_keymap(mode, key, command, desc)
+		vim.api.nvim_buf_set_keymap(
+			bufnr,
+			mode,
+			key,
+			command,
+			{ noremap = true, silent = true, desc = desc }
+		)
 	end
 
-	return name, suggestions
-end
-
--- Helper function to apply hole suggestion
-local function apply_hole_suggestion(name, suggestion)
-	local params = vim.lsp.util.make_position_params()
-	params.context = { triggerKind = 1 } -- Invoked manually
-
-	vim.lsp.buf_request(0, "textDocument/completion", params, function(err, result, _, _)
-		if err or not result or #result.items == 0 then
-			print("Error applying suggestion: " .. vim.inspect(err or "No completion items"))
-			return
-		end
-
-		-- Find the matching completion item
-		local completion_item
-		for _, item in ipairs(result.items) do
-			if item.label == suggestion.identifier then
-				completion_item = item
-				break
-			end
-		end
-
-		if not completion_item then
-			print("Could not find matching completion item")
-			return
-		end
-
-		-- Apply the completion
-		vim.lsp.util.apply_text_edit(completion_item.textEdit, 0)
-		print("Applied suggestion: " .. suggestion.identifier)
-	end)
-end
--- Typed Hole command
-function M.typed_hole()
-	local params = vim.lsp.util.make_position_params()
-
-	vim.lsp.buf_request(0, "textDocument/hover", params, function(err, result, _, _)
-		if err or not result or not result.contents then
-			print("Error getting hole information: " .. vim.inspect(err or "No result"))
-			return
-		end
-
-		local hole_info = result.contents
-		if type(hole_info) == "table" then hole_info = hole_info.value or hole_info[1].value end
-
-		-- Parse the hole information
-		local name, suggestions = parse_hole_info(hole_info)
-
-		if not name or #suggestions == 0 then
-			print("No valid hole information found")
-			return
-		end
-
-		-- Present suggestions to the user
-		vim.ui.select(suggestions, {
-			prompt = "Select suggestion for hole " .. name .. ":",
-			format_item = function(item)
-				return string.format("%s: %s (%s)", item.identifier, item.type, item.module)
-			end,
-		}, function(choice)
-			if choice then
-				-- Apply the selected suggestion
-				apply_hole_suggestion(name, choice)
-			end
-		end)
-	end)
+	-- Key mappings
+	set_keymap(
+		"n",
+		"<space>ai",
+		'<Cmd>lua require("nvimmer-ps").add_import()<CR>',
+		"Purescript: Show list of available modules, enter to import"
+	)
+	set_keymap(
+		"n",
+		"<space>am",
+		'<Cmd>lua require("nvimmer-ps").add_explicit_import()<CR>',
+		"Purescript: Will get current symbol, allow change it, show modules that contain it, enter to import"
+	)
+	set_keymap(
+		"n",
+		"<space>ac",
+		'<Cmd>lua require("nvimmer-ps").case_split()<CR>',
+		"Purescript: Case split"
+	)
+	set_keymap(
+		"n",
+		"<space>aa",
+		'<Cmd>lua require("nvimmer-ps").add_clause()<CR>',
+		"Purescript: Add clause"
+	)
+	set_keymap("n", "<space>ab", '<Cmd>lua require("nvimmer-ps").build()<CR>', "Purescript: Build")
+	set_keymap("n", "<space>as", '<Cmd>lua require("nvimmer-ps").start()<CR>', "Purescript: Start")
+	set_keymap("n", "<space>aS", '<Cmd>lua require("nvimmer-ps").stop()<CR>', "Purescript: Stop")
+	set_keymap(
+		"n",
+		"<space>ar",
+		'<Cmd>lua require("nvimmer-ps").restart()<CR>',
+		"Purescript: Restart"
+	)
 end
 
 return M
