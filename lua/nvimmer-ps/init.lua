@@ -1,17 +1,21 @@
 local get_identifier_at_cursor = require("nvimmer-ps.utils.get_identifier_at_cursor")
 local M = {}
+local actions = require("telescope.actions")
+local curl = require("plenary.curl")
+local previewers = require("telescope.previewers")
+local telescope = require("telescope")
 
 -- Helper function to print inspection results to a file (for debugging)
-local function print_inspect_to_file(data)
-	local filepath = "/tmp/purescript_lsp_debug.log"
-	local file = io.open(filepath, "a")
-	if not file then
-		print("Could not open file for writing: " .. filepath)
-		return
-	end
-	file:write(vim.inspect(data) .. "\n")
-	file:close()
-end
+-- local function print_inspect_to_file(data)
+-- 	local filepath = "/tmp/purescript_lsp_debug.log"
+-- 	local file = io.open(filepath, "a")
+-- 	if not file then
+-- 		print("Could not open file for writing: " .. filepath)
+-- 		return
+-- 	end
+-- 	file:write(vim.inspect(data) .. "\n")
+-- 	file:close()
+-- end
 
 -- Function to request a command from the PureScript language server
 local function request_command(command, arguments, callback)
@@ -23,20 +27,20 @@ local function request_command(command, arguments, callback)
 	end
 
 	for _, client in ipairs(clients) do
-		print_inspect_to_file {
-			command = command or "No command",
-			arguments = arguments or "No arguments",
-		}
+		-- print_inspect_to_file {
+		-- 	command = command or "No command",
+		-- 	arguments = arguments or "No arguments",
+		-- }
 
 		client.request("workspace/executeCommand", {
 			command = command,
 			arguments = arguments,
 		}, function(err, result, ctx)
-			print_inspect_to_file {
-				err = err or "No error",
-				result = result or "No result",
-				ctx = ctx or "No context",
-			}
+			-- print_inspect_to_file {
+			-- 	err = err or "No error",
+			-- 	result = result or "No result",
+			-- 	ctx = ctx or "No context",
+			-- }
 			if err then print("Error in request_command: " .. vim.inspect(err)) end
 			if callback then callback(err, result, ctx) end
 		end)
@@ -277,6 +281,271 @@ function M.setup_on_init(client)
 	end
 end
 
+----------------------------------------------------------------------------------
+--- PURSUIT RELATED
+
+-- Function to perform an HTTP request to Pursuit using plenary's curl wrapper
+-- example output is array of tables like this:
+
+-- {
+-- 	info = {
+-- 		module = "Reactix.Hooks",
+-- 		title = "nothing",
+-- 		type = "declaration",
+-- 		typeOrValue = "ValueLevel",
+-- 		typeText = "Effect Unit",
+-- 	},
+-- 	markup = "<p>A cleanup handler that does nothing</p>\n",
+-- 	package = "purescript-reactix",
+-- 	text = "A cleanup handler that does nothing\n",
+-- 	url =
+-- 	"https://pursuit.purescript.org/packages/purescript-reactix/0.6.1/docs/Reactix.Hooks#v:nothing",
+-- 	version = "0.6.1",
+-- }
+local function pursuit_request(search_term, callback)
+	local url = "https://pursuit.purescript.org/search?q=" .. search_term
+
+	local response = curl.get(url, {
+		accept = "application/json",
+	})
+
+	if response.status ~= 200 then
+		callback(nil, "HTTP request failed with status: " .. response.status)
+		return
+	end
+
+	local decoded = vim.json.decode(response.body)
+	if type(decoded) ~= "table" then
+		callback(nil, "Invalid response format")
+		return
+	end
+
+	for _, result in ipairs(decoded) do
+		local function validate_result()
+			vim.validate {
+				result = { result, "t" },
+				["markup"] = { result.markup, "s" },
+				["text"] = { result.text, "s" },
+				["url"] = { result.url, "s" },
+				["version"] = { result.version, "s" },
+				["info.type"] = { result.info.type, "s" },
+			}
+			if result.info.type == "declaration" then
+				vim.validate {
+					["info.module"] = { result.info.module, "s" },
+					["info.title"] = { result.info.title, "s" },
+					["info.type"] = { result.info.type, "s" },
+					["info.typeOrValue"] = { result.info.typeOrValue, "s" },
+					["info.typeText"] = { result.info.typeText, "s" },
+				}
+			elseif result.info.type == "package" then
+				vim.validate {
+					["info.deprecated"] = { result.info.deprecated, "b" },
+				}
+			elseif result.info.type == "module" then
+				vim.validate {
+					["info.module"] = { result.info.module, "b" },
+				}
+			else
+				error("Invalid result format")
+			end
+		end
+
+		pcall(validate_result, function(err) print("Validation error: " .. err) end)
+	end
+
+	callback(decoded, nil) -- Pass the decoded result to the callback
+end
+
+local function pursuit_request_modules(search_term, callback)
+	pursuit_request(search_term, function(results, err)
+		if err then
+			callback(nil, err)
+			return
+		end
+
+		local only_modules = vim.tbl_filter(
+			function(result) return result.info.type == "module" end,
+			results
+		)
+		callback(only_modules, nil)
+	end)
+end
+
+-- "https://pursuit.purescript.org/packages/purescript-reactix/0.6.1/docs/Reactix.Hooks#v:nothing",
+-- to
+-- "Reactix.Hooks#v:nothing"
+local function url_to_path_with_query(url)
+	-- Use string matching to extract the relevant part of the URL
+	local path = url:match("://[^/]+/(.+)") -- Extract the part after the domain
+	if path then
+		-- Remove the query part if it exists
+		local cleaned_path = path:match("([^?]+)") -- Get rid of any query parameters
+		return cleaned_path
+	end
+	return nil
+end
+
+local function handle_enter_key(prompt_bufnr)
+	local selection = require("telescope.actions.state").get_selected_entry()
+	require("telescope.actions").close(prompt_bufnr)
+	if selection then
+		-- Open the URL in the browser
+		vim.fn.system("xdg-open " .. selection.value.url) -- Change this to your OS's command if needed
+	end
+end
+
+local function handle_ctrl_i(at_cursor, prompt_bufnr)
+	local selection = require("telescope.actions.state").get_selected_entry()
+	require("telescope.actions").close(prompt_bufnr)
+
+	if selection.value.info.type == "declaration" then
+		local uri = vim.uri_from_bufnr(0)
+		local ident = selection.value.info.title
+		local qualifier = at_cursor.module or nil
+		local module = selection.value.info.module
+		local namespace = ""
+
+		request_command(
+			"purescript.addCompletionImport",
+			{ ident, module, qualifier, uri, namespace },
+			function(err, result)
+				if err then
+					print("Error adding completion import: " .. vim.inspect(err))
+				else
+					print("Completion import added successfully: " .. selection.value.info.title)
+				end
+			end
+		)
+	elseif selection.value.info.type == "package" then
+		print("Selected module is a package, not a declaration")
+		vim.fn.system("xdg-open " .. selection.value.url)
+	elseif selection.value.info.type == "module" then
+		local selected_module = selection.value.info.module
+		local qualifier = at_cursor.module or nil
+		local uri = vim.uri_from_bufnr(0)
+		-- Issue the import command for the selected module
+		request_command(
+			"purescript.addModuleImport",
+			{ selected_module, qualifier, uri },
+			function(add_err)
+				if add_err then
+					print("Error adding module import: " .. vim.inspect(add_err))
+				else
+					print("Module import added successfully: " .. selected_module)
+				end
+			end
+		)
+	else
+		print("Selected module is unknown")
+	end
+end
+
+-- Function to search Pursuit
+function M.search_pursuit()
+	local at_cursor = get_identifier_at_cursor()
+	vim.ui.input(
+		{ prompt = "Search Pursuit: ", default = vim.fn.expand("<cword>") },
+		function(search_term)
+			if not search_term or search_term == "" then return end
+
+			pursuit_request(search_term, function(results, err)
+				if err then
+					print("Error searching Pursuit: " .. err)
+					return
+				end
+
+				if not results or type(results) ~= "table" or #results == 0 then
+					print("No results found")
+					return
+				end
+
+				require("telescope.pickers")
+						.new({}, {
+							prompt_title =
+							"Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
+							finder = require("telescope.finders").new_table {
+								results = results,
+								entry_maker = function(item)
+									return {
+										value = item,
+										display = url_to_path_with_query(item.url),
+										ordinal = url_to_path_with_query(item.url), -- For sorting
+									}
+								end,
+							},
+							previewer = previewers.new_buffer_previewer {
+								define_preview = function(self, entry, status)
+									local content = vim.inspect(entry)
+									self.state.bufnr = self.state.bufnr or vim.api.nvim_create_buf(false, true)
+									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.split(content, "\n"))
+									vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
+								end,
+							},
+							attach_mappings = function(_, map)
+								map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
+								map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
+								return true
+							end,
+						})
+						:find()
+			end)
+		end
+	)
+end
+
+-- Function to search Pursuit modules
+function M.search_pursuit_modules()
+	local at_cursor = get_identifier_at_cursor()
+	vim.ui.input(
+		{ prompt = "Search Pursuit Modules: ", default = vim.fn.expand("<cword>") },
+		function(search_term)
+			if not search_term or search_term == "" then return end
+
+			pursuit_request_modules(search_term, function(results, err)
+				if err then
+					print("Error searching Pursuit modules: " .. err)
+					return
+				end
+
+				if not results or type(results) ~= "table" or #results == 0 then
+					print("No results found")
+					return
+				end
+
+				-- Use Telescope to display the results
+				require("telescope.pickers")
+						.new({}, {
+							prompt_title =
+							"Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
+							finder = require("telescope.finders").new_table {
+								results = results,
+								entry_maker = function(item)
+									return {
+										value = item,
+										display = string.format(
+											"%s in %s (%s)",
+											item.info.module,
+											item.package,
+											item.version
+										),
+										ordinal = item.info.module, -- For sorting
+									}
+								end,
+							},
+							attach_mappings = function(_, map)
+								map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
+								map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
+								return true
+							end,
+						})
+						:find()
+			end)
+		end
+	)
+end
+
+----------------------------------------------------------------------------------
 function M.setup_on_attach(_client, bufnr)
 	vim.lsp.set_log_level("debug")
 
@@ -338,75 +607,6 @@ function M.setup_on_attach(_client, bufnr)
 		'<Cmd>lua require("nvimmer-ps").restart()<CR>',
 		"Purescript: Restart"
 	)
-end
-
--- Function to search Pursuit
-function M.search_pursuit()
-	vim.ui.input({ prompt = "Search Pursuit: " }, function(search_term)
-		if not search_term or search_term == "" then return end
-
-		request_command("purescript.search", { search_term }, function(err, results)
-			if err then
-				print("Error searching Pursuit: " .. vim.inspect(err))
-				return
-			end
-
-			if results and type(results) == "table" then
-				for _, item in ipairs(results) do
-					local mod = item.info.mod or "Unknown Module"
-					local title = item.info.title or "Unknown Title"
-					local text = item.text or "No Description"
-					print(string.format("Module: %s, Title: %s, Description: %s", mod, title, text))
-
-					-- Issue the import command for the found module
-					request_command("purescript.addModuleImport", { mod, nil, vim.uri_from_bufnr(0) },
-						function(add_err)
-							if add_err then
-								print("Error adding module import: " .. vim.inspect(add_err))
-							else
-								print("Module import added successfully: " .. mod)
-							end
-						end)
-				end
-			else
-				print("No results found")
-			end
-		end)
-	end)
-end
-
--- Function to search Pursuit modules
-function M.search_pursuit_modules()
-	vim.ui.input({ prompt = "Search Pursuit Modules: " }, function(search_term)
-		if not search_term or search_term == "" then return end
-
-		request_command("purescript.search", { search_term }, function(err, results)
-			if err then
-				print("Error searching Pursuit modules: " .. vim.inspect(err))
-				return
-			end
-
-			if results and type(results) == "table" then
-				for _, item in ipairs(results) do
-					local mod = item.info.mod or "Unknown Module"
-					local package = item.package or "Unknown Package"
-					print(string.format("Module: %s, Package: %s", mod, package))
-
-					-- Issue the import command for the found module
-					request_command("purescript.addModuleImport", { mod, nil, vim.uri_from_bufnr(0) },
-						function(add_err)
-							if add_err then
-								print("Error adding module import: " .. vim.inspect(add_err))
-							else
-								print("Module import added successfully: " .. mod)
-							end
-						end)
-				end
-			else
-				print("No results found")
-			end
-		end)
-	end)
 end
 
 return M
