@@ -1,0 +1,19 @@
+FROM ghcr.io/lunarmodules/busted:master
+
+# Install Lua 5.1 and the required development tools
+RUN apk add --no-cache lua5.1 lua5.1-dev luarocks
+RUN apk add --no-cache gcc g++ make musl-dev
+RUN luarocks init
+RUN luarocks install busted "2.1.2-3"
+RUN luarocks config --scope project lua_version 5.1
+RUN luarocks install luafilesystem
+RUN luarocks install nlua
+RUN apk add --no-cache neovim
+
+# RUN luarocks --lua-version=5.1 install busted && \
+# 	luarocks --lua-version=5.1 install lpeg && \
+# 	luarocks --lua-version=5.1 install moonscript && \
+# 	# TODO: https://github.com/luaposix/luaposix/issues/285#issuecomment-316583187 && \
+# 	luarocks --lua-version=5.1 install https://luarocks.org/manifests/gvvaughan/luaposix-33.4.0-1.rockspec && \
+# 	luarocks --lua-version=5.1 install luasql-mysql MYSQL_INCDIR=/usr/include/mysql && \
+# 	luarocks --lua-version=5.1 install http

@@ -1,3 +1,4 @@
+local get_identifier_at_cursor = require("nvimmer-ps.utils.get_identifier_at_cursor")
 local M = {}
 
 -- Helper function to print inspection results to a file (for debugging)
@@ -42,104 +43,51 @@ local function request_command(command, arguments, callback)
 	end
 end
 
--- function M.add_import(...)
--- 	local args = { ... }
--- 	local name = #args == 0 and vim.fn.expand("<cword>") or args[1]
--- 	local module = args[2] or vim.NIL
+function M.add_import()
+	-- First, get available modules
+	request_command("purescript.getAvailableModules", {}, function(err, modules)
+		if err then
+			print("Error getting available modules: " .. vim.inspect(err))
+			return
+		end
 
--- 	request_command(
--- 		"purescript.addCompletionImport",
--- 		{ name, module, vim.NIL, "file://" .. vim.fn.expand("%:p") },
--- 		function(err, result)
--- 			if err then
--- 				print("Error adding import: " .. vim.inspect(err))
--- 				return
--- 			end
--- 			if result and type(result) == "table" then
--- 				-- Handle ambiguous imports using vim.ui.select
--- 				vim.ui.select(result, {
--- 					prompt = "Select import:",
--- 					format_item = function(item) return item end,
--- 				}, function(choice)
--- 					if choice then M.add_import(name, choice) end
--- 				end)
--- 			end
--- 		end
--- 	)
--- end
+		-- Allow user to select a module
+		vim.ui.select(modules, {
+			prompt = "Select module to import:",
+			format_item = function(item) return item end,
+		}, function(selected_module)
+			if not selected_module then return end
 
--- function M.add_module_import()
--- 	-- First, get available modules
--- 	request_command("purescript.getAvailableModules", {}, function(err, modules)
--- 		if err then
--- 			print("Error getting available modules: " .. vim.inspect(err))
--- 			return
--- 		end
+			-- Get the current file's URI
+			local uri = vim.uri_from_bufnr(0)
 
--- 		-- Allow user to select a module
--- 		vim.ui.select(modules, {
--- 			prompt = "Select module to import:",
--- 			format_item = function(item) return item end,
--- 		}, function(selected_module)
--- 			if not selected_module then return end
+			-- Get the identifier at cursor
+			local at_cursor = get_identifier_at_cursor()
+			local qualifier = at_cursor.module or vim.NIL
 
--- 			-- Get the current file's URI
--- 			local uri = vim.uri_from_bufnr(0)
+			-- Add the module import
+			request_command(
+				"purescript.addModuleImport",
+				{ selected_module, qualifier, uri },
+				function(add_err, _add_result)
+					if add_err then
+						print("Error adding module import: " .. vim.inspect(add_err))
+					else
+						print("Module import added successfully")
+					end
+				end
+			)
+		end)
+	end)
+end
 
--- 			-- Get the identifier at cursor
--- 			local at_cursor = get_identifier_at_cursor()
--- 			local qualifier = at_cursor.module or vim.NIL
-
--- 			-- Add the module import
--- 			request_command(
--- 				"purescript.addModuleImport",
--- 				{ selected_module, qualifier, uri },
--- 				function(add_err, add_result)
--- 					if add_err then
--- 						print("Error adding module import: " .. vim.inspect(add_err))
--- 					else
--- 						print("Module import added successfully")
--- 					end
--- 				end
--- 			)
--- 		end)
--- 	end)
--- end
-
--- Pbuild command
 function M.build() request_command("purescript.build", {}) end
 
--- Pstart command
 function M.start() request_command("purescript.startPscIde", {}) end
 
--- Pend command
 function M.stop() request_command("purescript.stopPscIde", {}) end
 
--- Prestart command
 function M.restart() request_command("purescript.restartPscIde", {}) end
-
--- -- Psearch command
--- function M.search(identifier)
--- 	request_command("purescript.search", { identifier }, function(err, result)
--- 		if err then
--- 			print("Error searching: " .. vim.inspect(err))
--- 			return
--- 		end
--- 		if result and type(result) == "table" then
--- 			local lines = {}
--- 			for _, item in ipairs(result) do
--- 				table.insert(lines, string.format("module %s where", item.mod))
--- 				table.insert(lines, string.format("  %s :: %s", item.identifier, item.typ))
--- 				table.insert(lines, "")
--- 			end
--- 			-- You might want to implement a custom preview function here
--- 			-- For now, we'll just print the results
--- 			print(table.concat(lines, "\n"))
--- 		else
--- 			print("No results found")
--- 		end
--- 	end)
--- end
 
 -- addIdentImport command
 function M.add_explicit_import()
@@ -206,18 +154,13 @@ end
 -- Case Split command
 -- TODO: SOME ERROR in the LSP, DOESNT WORK
 function M.case_split()
-	local info = get_active_pos_info()
 	vim.ui.input({ prompt = "Parameter type: " }, function(ty)
-		print_inspect_to_file {
-			command = "purescript.caseSplit-explicit",
-			arguments = { info.uri, info.pos.line, info.pos.character, ty },
-		}
-
 		if not ty then
 			print("No type provided")
 			return
 		end
 
+		local info = get_active_pos_info()
 		request_command(
 			"purescript.caseSplit-explicit",
 			{ info.uri, info.pos.line, info.pos.character, ty },
@@ -263,12 +206,11 @@ function M.setup_on_init(client)
 		for _, type_info in ipairs(type_infos) do
 			vim.validate {
 				-- example:
+				--
 				-- declarationType = vim.empty_dict(),
 				-- definedAt = vim.empty_dict(),
 				-- documentation = vim.empty_dict(),
-				-- expandedType = {
-				-- 	value0 = "∀ (@f ∷ Type -> Type) (a ∷ Type). Plus f ⇒ f a"
-				-- },
+				-- expandedType = { value0 = "∀ (@f ∷ Type -> Type) (a ∷ Type). Plus f ⇒ f a" },
 				-- exportedFrom = { "Control.Plus" },
 				-- identifier = "empty",
 				-- ["module'"] = "Control.Plus",
@@ -348,18 +290,30 @@ function M.setup_on_attach(_client, bufnr)
 		)
 	end
 
-	-- Key mappings
+	-- m for import module
 	set_keymap(
 		"n",
-		"<space>ai",
+		"<space>am",
 		'<Cmd>lua require("nvimmer-ps").add_import()<CR>',
 		"Purescript: Show list of available modules, enter to import"
 	)
 	set_keymap(
 		"n",
-		"<space>am",
+		"<space>ae",
 		'<Cmd>lua require("nvimmer-ps").add_explicit_import()<CR>',
 		"Purescript: Will get current symbol, allow change it, show modules that contain it, enter to import"
+	)
+	set_keymap(
+		"n",
+		"<space>asi",
+		'<Cmd>lua require("nvimmer-ps").search_pursuit()<CR>',
+		"Purescript: Search identifier under cursor"
+	)
+	set_keymap(
+		"n",
+		"<space>asm",
+		'<Cmd>lua require("nvimmer-ps").search_pursuit_modules()<CR>',
+		"Purescript: Search modules in Pursuit"
 	)
 	set_keymap(
 		"n",
@@ -373,15 +327,86 @@ function M.setup_on_attach(_client, bufnr)
 		'<Cmd>lua require("nvimmer-ps").add_clause()<CR>',
 		"Purescript: Add clause"
 	)
-	set_keymap("n", "<space>ab", '<Cmd>lua require("nvimmer-ps").build()<CR>', "Purescript: Build")
-	set_keymap("n", "<space>as", '<Cmd>lua require("nvimmer-ps").start()<CR>', "Purescript: Start")
-	set_keymap("n", "<space>aS", '<Cmd>lua require("nvimmer-ps").stop()<CR>', "Purescript: Stop")
+
+	-- prefix + l for language server + ...
+	set_keymap("n", "<space>alb", '<Cmd>lua require("nvimmer-ps").build()<CR>', "Purescript: Build")
+	set_keymap("n", "<space>als", '<Cmd>lua require("nvimmer-ps").start()<CR>', "Purescript: Start")
+	set_keymap("n", "<space>alt", '<Cmd>lua require("nvimmer-ps").stop()<CR>', "Purescript: Stop")
 	set_keymap(
 		"n",
-		"<space>ar",
+		"<space>alr",
 		'<Cmd>lua require("nvimmer-ps").restart()<CR>',
 		"Purescript: Restart"
 	)
+end
+
+-- Function to search Pursuit
+function M.search_pursuit()
+	vim.ui.input({ prompt = "Search Pursuit: " }, function(search_term)
+		if not search_term or search_term == "" then return end
+
+		request_command("purescript.search", { search_term }, function(err, results)
+			if err then
+				print("Error searching Pursuit: " .. vim.inspect(err))
+				return
+			end
+
+			if results and type(results) == "table" then
+				for _, item in ipairs(results) do
+					local mod = item.info.mod or "Unknown Module"
+					local title = item.info.title or "Unknown Title"
+					local text = item.text or "No Description"
+					print(string.format("Module: %s, Title: %s, Description: %s", mod, title, text))
+
+					-- Issue the import command for the found module
+					request_command("purescript.addModuleImport", { mod, nil, vim.uri_from_bufnr(0) },
+						function(add_err)
+							if add_err then
+								print("Error adding module import: " .. vim.inspect(add_err))
+							else
+								print("Module import added successfully: " .. mod)
+							end
+						end)
+				end
+			else
+				print("No results found")
+			end
+		end)
+	end)
+end
+
+-- Function to search Pursuit modules
+function M.search_pursuit_modules()
+	vim.ui.input({ prompt = "Search Pursuit Modules: " }, function(search_term)
+		if not search_term or search_term == "" then return end
+
+		request_command("purescript.search", { search_term }, function(err, results)
+			if err then
+				print("Error searching Pursuit modules: " .. vim.inspect(err))
+				return
+			end
+
+			if results and type(results) == "table" then
+				for _, item in ipairs(results) do
+					local mod = item.info.mod or "Unknown Module"
+					local package = item.package or "Unknown Package"
+					print(string.format("Module: %s, Package: %s", mod, package))
+
+					-- Issue the import command for the found module
+					request_command("purescript.addModuleImport", { mod, nil, vim.uri_from_bufnr(0) },
+						function(add_err)
+							if add_err then
+								print("Error adding module import: " .. vim.inspect(add_err))
+							else
+								print("Module import added successfully: " .. mod)
+							end
+						end)
+				end
+			else
+				print("No results found")
+			end
+		end)
+	end)
 end
 
 return M
