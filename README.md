@@ -7,12 +7,12 @@ it adds purescript related commands like
 
 | Keystroke | Command Function | Description |
 | --- | --- | --- |
-| `<space>am` | `add_import()` | Show list of available modules, enter to import |
-| `<space>ae` | `add_explicit_import()` | Will get current symbol, allow change it, show modules that contain it, enter to import |
-| `<space>asi` | `search_pursuit()` | Search identifier under cursor |
-| `<space>asm` | `search_pursuit_modules()` | Search modules in Pursuit |
-| `<space>ac` | `case_split()` | Case split |
-| `<space>aa` | `add_clause()` | Add clause |
+| `<space>am` | `add_import()` | Show list of available modules from spago, `enter` to add import |
+| `<space>ae` | `add_explicit_import()` | Will get current symbol, show modules that contain it, enter to add import |
+| `<space>asi` | `search_pursuit()` | Search identifier under cursor, all 3 types (declarations, packages, modules), `enter` to open in browser, `ctrl+i` to add import statement (but if package - open in browser) |
+| `<space>asm` | `search_pursuit_modules()` | Search modules in Pursuit, like `search_pursuit`, but filters only modules, and shows different UI, same keybindings |
+| `<space>ac` | `case_split()` | Case split ([TODO: doesnt work in vscode too](https://github.com/nwolverson/vscode-ide-purescript/issues/224)) |
+| `<space>aa` | `add_clause()` | Add clause (generate function from a type of function) |
 | `<space>alb` | `build()` | Build |
 | `<space>als` | `start()` | Start |
 | `<space>alt` | `stop()` | Stop |
