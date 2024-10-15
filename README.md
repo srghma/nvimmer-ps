@@ -25,7 +25,7 @@ Also, it intercepts `purescript.typedHole` command FROM purescript-language-serv
 
 Example: You have code `leftSide _ = ?asdf`, You apply `code action` from lsp (`<leader>ca`), You choose `Apply typed hole suggestion` - This plugin will render telescope picker with list of typed hole suggestions and you can select one to apply.
 
-
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/vhbRcSjSBJI/0.jpg)](https://www.youtube.com/watch?v=vhbRcSjSBJI)
 
 # Contribute
 
