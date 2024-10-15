@@ -2,7 +2,11 @@
 
 a neovim plugin for PureScript that supplements the built-in purescript-language-server
 
-it adds purescript related commands like
+# HOW TO INSTALL
+
+check https://github.com/AstroNvim/astrocommunity/pull/1222
+
+# Commands
 
 
 | Keystroke | Command Function | Description |
@@ -19,7 +23,7 @@ it adds purescript related commands like
 | `<space>alr` | `restart()` | Restart |
 
 
------
+# Intercepted  
 
 Also, it intercepts `purescript.typedHole` command FROM purescript-language-server:
 
