@@ -95,6 +95,10 @@ This command registers some buffer commands. Here's a list of them.
 * Apply code actions `:Papply`
 * Issue custom commands directly to language-server with `:Pcommand`
 
+## Alternatives 
+
+- rewrite of this plugin on lua for neovim https://github.com/srghma/nvimmer-ps
+
 ## Author and Feedback
 
 If you like this plugin, please star it on Github. Also please give a star to all the awesome plugins we depend on. It's a great way of encouraging people. Same goes for issues reports or feature requests.
