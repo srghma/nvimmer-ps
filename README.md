@@ -27,3 +27,6 @@ Example: You have code `leftSide _ = ?asdf`, You apply `code action` from lsp (`
 
 
 
+# Contribute
+
+`./spec` tests dont work yet
