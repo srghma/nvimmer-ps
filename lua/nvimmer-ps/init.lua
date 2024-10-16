@@ -1,47 +1,47 @@
 local get_identifier_at_cursor = require("nvimmer-ps.utils.get_identifier_at_cursor")
 local M = {}
-local actions = require("telescope.actions")
 local curl = require("plenary.curl")
 local previewers = require("telescope.previewers")
-local telescope = require("telescope")
 
 -- Helper function to print inspection results to a file (for debugging)
--- local function print_inspect_to_file(data)
--- 	local filepath = "/tmp/purescript_lsp_debug.log"
--- 	local file = io.open(filepath, "a")
--- 	if not file then
--- 		print("Could not open file for writing: " .. filepath)
--- 		return
--- 	end
--- 	file:write(vim.inspect(data) .. "\n")
--- 	file:close()
--- end
+local function print_inspect_to_file(data)
+	local filepath = "/tmp/purescript_lsp_debug.log"
+	local file = io.open(filepath, "a")
+	if not file then
+		vim.notify("Could not open file for writing: " .. filepath, vim.log.levels.ERROR)
+		return
+	end
+	file:write(vim.inspect(data) .. "\n")
+	file:close()
+end
 
 -- Function to request a command from the PureScript language server
 local function request_command(command, arguments, callback)
 	local clients =
 			vim.lsp.get_clients { name = "purescriptls", bufnr = vim.api.nvim_get_current_buf() }
 	if #clients == 0 then
-		print("No active clients for purescriptls")
+		vim.notify("No active clients for purescriptls", vim.log.levels.WARN)
 		return
 	end
 
 	for _, client in ipairs(clients) do
-		-- print_inspect_to_file {
-		-- 	command = command or "No command",
-		-- 	arguments = arguments or "No arguments",
-		-- }
+		print_inspect_to_file "sending command"
+		print_inspect_to_file {
+			command = command or "No command",
+			arguments = arguments or "No arguments",
+		}
 
 		client.request("workspace/executeCommand", {
 			command = command,
 			arguments = arguments,
 		}, function(err, result, ctx)
-			-- print_inspect_to_file {
-			-- 	err = err or "No error",
-			-- 	result = result or "No result",
-			-- 	ctx = ctx or "No context",
-			-- }
-			if err then print("Error in request_command: " .. vim.inspect(err)) end
+			print_inspect_to_file "received response"
+			print_inspect_to_file {
+				err = err or "No error",
+				result = result or "No result",
+				ctx = ctx or "No context",
+			}
+			if err then vim.notify("Error in request_command: " .. vim.inspect(err), vim.log.levels.ERROR) end
 			if callback then callback(err, result, ctx) end
 		end)
 	end
@@ -51,7 +51,7 @@ function M.add_import()
 	-- First, get available modules
 	request_command("purescript.getAvailableModules", {}, function(err, modules)
 		if err then
-			print("Error getting available modules: " .. vim.inspect(err))
+			vim.notify("Error getting available modules: " .. vim.inspect(err), vim.log.levels.ERROR)
 			return
 		end
 
@@ -67,7 +67,7 @@ function M.add_import()
 
 			-- Get the identifier at cursor
 			local at_cursor = get_identifier_at_cursor()
-			local qualifier = at_cursor.module or vim.NIL
+			local qualifier = at_cursor.module or nil
 
 			-- Add the module import
 			request_command(
@@ -75,9 +75,9 @@ function M.add_import()
 				{ selected_module, qualifier, uri },
 				function(add_err, _add_result)
 					if add_err then
-						print("Error adding module import: " .. vim.inspect(add_err))
+						vim.notify("Error adding module import: " .. vim.inspect(add_err), vim.log.levels.ERROR)
 					else
-						print("Module import added successfully")
+						vim.notify("Module import added successfully", vim.log.levels.INFO)
 					end
 				end
 			)
@@ -85,56 +85,84 @@ function M.add_import()
 	end)
 end
 
-function M.build() request_command("purescript.build", {}) end
+local function request_simple_command(command)
+	request_command(command, {}, function(err, result, ctx)
+		if err then
+			vim.notify("Error running" .. command .. ": " .. vim.inspect(err), vim.log.levels.ERROR)
+			return
+		end
+		vim.notify("Success running " .. command .. ": " .. vim.inspect(result), vim.log.levels.INFO)
+	end)
+end
 
-function M.start() request_command("purescript.startPscIde", {}) end
+function M.build() request_simple_command("purescript.build") end
 
-function M.stop() request_command("purescript.stopPscIde", {}) end
+function M.start() request_simple_command("purescript.startPscIde") end
 
-function M.restart() request_command("purescript.restartPscIde", {}) end
+function M.stop() request_simple_command("purescript.stopPscIde") end
 
--- addIdentImport command
+function M.restart() request_simple_command("purescript.restartPscIde") end
+
+-- addIdentImport command https://github.com/nwolverson/vscode-ide-purescript/blob/524a8285b528a86d4014d761f858984fee3c05f9/src/IdePurescript/VSCode/Imports.purs#L26
 function M.add_explicit_import()
 	local uri = vim.uri_from_bufnr(0)
 	local at_cursor = get_identifier_at_cursor()
-	local default_ident = at_cursor.identifier or ""
-	local qualifier = at_cursor.module or nil
-	local module = nil
-	local namespace = ""
 
-	vim.ui.input({
-		prompt = "Identifier: ",
-		default = default_ident,
-	}, function(ident)
-		if not ident or ident == "" then return end
+	vim.ui.input({ prompt = "Identifier: ", default = at_cursor.identifier or "" }, function(ident)
+		if not ident or ident == "" then
+			vim.notify("No identifier provided", vim.log.levels.WARN)
+			return
+		end
 
 		request_command(
 			"purescript.addCompletionImport",
-			{ ident, module, qualifier, uri, namespace },
+			{
+				ident,               -- ident
+				nil,                 -- module
+				at_cursor.module or nil, -- qualifier
+				uri,                 -- uri
+				""                   -- namespace
+			},
 			function(err, result)
+				-- will return array like { "Data.Argonaut.Decode", "Data.Argonaut.Decode.Error", "Data.Codec.Argonaut", "Data.Codec.Argonaut.Common", "Data.Codec.Argonaut.Compat" }
+
 				if err then
-					print("Error adding import: " .. vim.inspect(err))
+					vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
 					return
 				end
-				if result and type(result) == "table" and #result > 0 then
-					-- Multiple modules provide this identifier, let user choose
-					require("telescope.builtin").find_files {
-						prompt_title = "Select module for " .. ident .. ":",
-						find_command = { "echo", unpack(result) },
-						attach_mappings = function(prompt_bufnr, map)
-							map("i", "<CR>", function()
-								local selection = require("telescope.actions.state").get_selected_entry()
-								require("telescope.actions").close(prompt_bufnr)
-								if selection then M.add_ident_import_mod(ident, qualifier, uri, selection.value) end
-							end)
-							return true
-						end,
-					}
-				else
-					print("Import added successfully")
+
+				if not result and type(result) ~= "table" and #result <= 0 then
+					vim.notify("No modules provide this identifier", vim.log.levels.WARN)
+					return
 				end
-			end
-		)
+
+				vim.ui.select(result,
+					{ prompt = "Select module for " .. ident .. ":", format_item = function(item) return item end },
+					function(selected_module)
+						if not selected_module then
+							vim.notify("You didn't select a module", vim.log.levels.WARN)
+							return
+						end
+
+						request_command(
+							"purescript.addCompletionImport",
+							{
+								ident,           -- ident
+								selected_module, -- module
+								at_cursor.module or nil, -- qualifier
+								uri,             -- uri
+								""               -- namespace
+							},
+							function(err, _result)
+								if err then
+									vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
+									return
+								end
+								vim.notify("Module import added successfully", vim.log.levels.INFO)
+							end
+						)
+					end)
+			end)
 	end)
 end
 
@@ -160,7 +188,7 @@ end
 function M.case_split()
 	vim.ui.input({ prompt = "Parameter type: " }, function(ty)
 		if not ty then
-			print("No type provided")
+			vim.notify("No type provided", vim.log.levels.WARN)
 			return
 		end
 
@@ -170,10 +198,10 @@ function M.case_split()
 			{ info.uri, info.pos.line, info.pos.character, ty },
 			function(err, _result)
 				if err then
-					print("Error in case split: " .. vim.inspect(err))
+					vim.notify("Error in case split: " .. vim.inspect(err), vim.log.levels.ERROR)
 					return
 				end
-				print("Case split applied successfully")
+				vim.notify("Case split applied successfully", vim.log.levels.INFO)
 			end
 		)
 	end)
@@ -187,9 +215,9 @@ function M.add_clause()
 		{ info.uri, info.pos.line, info.pos.character },
 		function(err, _result)
 			if err then
-				print("Error adding clause: " .. vim.inspect(err))
+				vim.notify("Error adding clause: " .. vim.inspect(err), vim.log.levels.ERROR)
 			else
-				print("Clause added successfully")
+				vim.notify("Clause added successfully", vim.log.levels.INFO)
 			end
 		end
 	)
@@ -267,9 +295,11 @@ function M.setup_on_init(client)
 								{ selection.value.identifier, uri, range, selection.value },
 								function(err, result)
 									if err then
-										print("Error applying typed hole suggestion: " .. vim.inspect(err))
+										vim.notify("Error applying typed hole suggestion: " .. vim.inspect(err),
+											vim.log.levels.ERROR)
 									else
-										print("Typed hole suggestion applied successfully" .. vim.inspect(result))
+										vim.notify("Typed hole suggestion applied successfully" .. vim.inspect(result),
+											vim.log.levels.INFO)
 									end
 								end
 							)
@@ -351,7 +381,8 @@ local function pursuit_request(search_term, callback)
 			end
 		end
 
-		pcall(validate_result, function(err) print("Validation error: " .. err) end)
+		pcall(validate_result,
+			function(err) vim.notify("Validation error: " .. err, vim.log.levels.ERROR) end)
 	end
 
 	callback(decoded, nil) -- Pass the decoded result to the callback
@@ -374,16 +405,11 @@ end
 
 -- "https://pursuit.purescript.org/packages/purescript-reactix/0.6.1/docs/Reactix.Hooks#v:nothing",
 -- to
--- "Reactix.Hooks#v:nothing"
+-- "purescript-reactix/0.6.1/Reactix.Hooks#v:nothing"
 local function url_to_path_with_query(url)
-	-- Use string matching to extract the relevant part of the URL
-	local path = url:match("://[^/]+/(.+)") -- Extract the part after the domain
-	if path then
-		-- Remove the query part if it exists
-		local cleaned_path = path:match("([^?]+)") -- Get rid of any query parameters
-		return cleaned_path
-	end
-	return nil
+	-- Use Lua's string patterns to remove the domain and keep the path
+	local path_with_query = url:gsub("https://pursuit.purescript.org/packages/", ""):gsub("/docs", "")
+	return path_with_query
 end
 
 local function handle_enter_key(prompt_bufnr)
@@ -411,14 +437,16 @@ local function handle_ctrl_i(at_cursor, prompt_bufnr)
 			{ ident, module, qualifier, uri, namespace },
 			function(err, result)
 				if err then
-					print("Error adding completion import: " .. vim.inspect(err))
+					vim.notify("Error adding completion import: " .. vim.inspect(err), vim.log.levels.ERROR)
 				else
-					print("Completion import added successfully: " .. selection.value.info.title)
+					vim.notify("Completion import added successfully: " .. selection.value.info.title,
+						vim.log.levels.INFO)
 				end
 			end
 		)
 	elseif selection.value.info.type == "package" then
-		print("Selected module is a package, not a declaration")
+		vim.notify("Selected module is a package, not a declaration, opening link in browser",
+			vim.log.levels.WARN)
 		vim.fn.system("xdg-open " .. selection.value.url)
 	elseif selection.value.info.type == "module" then
 		local selected_module = selection.value.info.module
@@ -430,14 +458,14 @@ local function handle_ctrl_i(at_cursor, prompt_bufnr)
 			{ selected_module, qualifier, uri },
 			function(add_err)
 				if add_err then
-					print("Error adding module import: " .. vim.inspect(add_err))
+					vim.notify("Error adding module import: " .. vim.inspect(add_err), vim.log.levels.ERROR)
 				else
-					print("Module import added successfully: " .. selected_module)
+					vim.notify("Module import added successfully: " .. selected_module, vim.log.levels.INFO)
 				end
 			end
 		)
 	else
-		print("Selected module is unknown")
+		vim.notify("Selected module is unknown", vim.log.levels.WARN)
 	end
 end
 
@@ -451,12 +479,12 @@ function M.search_pursuit()
 
 			pursuit_request(search_term, function(results, err)
 				if err then
-					print("Error searching Pursuit: " .. err)
+					vim.notify("Error searching Pursuit: " .. err, vim.log.levels.ERROR)
 					return
 				end
 
 				if not results or type(results) ~= "table" or #results == 0 then
-					print("No results found")
+					vim.notify("No results found", vim.log.levels.WARN)
 					return
 				end
 
@@ -467,19 +495,20 @@ function M.search_pursuit()
 							finder = require("telescope.finders").new_table {
 								results = results,
 								entry_maker = function(item)
+									local formatted_url = url_to_path_with_query(item.url)
 									return {
 										value = item,
-										display = url_to_path_with_query(item.url),
-										ordinal = url_to_path_with_query(item.url), -- For sorting
+										display = formatted_url,
+										ordinal = formatted_url, -- For sorting
 									}
 								end,
 							},
 							previewer = previewers.new_buffer_previewer {
-								define_preview = function(self, entry, status)
+								define_preview = function(self, entry, _status)
 									local content = vim.inspect(entry)
 									self.state.bufnr = self.state.bufnr or vim.api.nvim_create_buf(false, true)
 									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.split(content, "\n"))
-									vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
+									-- vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
 								end,
 							},
 							attach_mappings = function(_, map)
@@ -504,12 +533,12 @@ function M.search_pursuit_modules()
 
 			pursuit_request_modules(search_term, function(results, err)
 				if err then
-					print("Error searching Pursuit modules: " .. err)
+					vim.notify("Error searching Pursuit modules: " .. err, vim.log.levels.ERROR)
 					return
 				end
 
 				if not results or type(results) ~= "table" or #results == 0 then
-					print("No results found")
+					vim.notify("No results found", vim.log.levels.WARN)
 					return
 				end
 
@@ -564,25 +593,25 @@ function M.setup_on_attach(_client, bufnr)
 		"n",
 		"<space>am",
 		'<Cmd>lua require("nvimmer-ps").add_import()<CR>',
-		"Purescript: Show list of available modules, enter to import"
+		"Purescript: Add import - Show list of available modules, enter to import"
 	)
 	set_keymap(
 		"n",
 		"<space>ae",
 		'<Cmd>lua require("nvimmer-ps").add_explicit_import()<CR>',
-		"Purescript: Will get current symbol, allow change it, show modules that contain it, enter to import"
+		"Purescript: Add explicit import - Will get current symbol, allow change it, show modules that contain it, enter to import"
 	)
 	set_keymap(
 		"n",
 		"<space>asi",
 		'<Cmd>lua require("nvimmer-ps").search_pursuit()<CR>',
-		"Purescript: Search identifier under cursor"
+		"Purescript: Search Pursuit - Search identifier under cursor"
 	)
 	set_keymap(
 		"n",
 		"<space>asm",
 		'<Cmd>lua require("nvimmer-ps").search_pursuit_modules()<CR>',
-		"Purescript: Search modules in Pursuit"
+		"Purescript: Search Pursuit modules"
 	)
 	set_keymap(
 		"n",

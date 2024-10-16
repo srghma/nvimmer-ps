@@ -1,52 +1,47 @@
 -- Function to get the identifier at cursor
--- if cursor is at `N` inside of `leftSide _ = M.Nothing` it will return `{ module = "M", identifier = "Nothing" }`
--- if cursor is at `N` inside of `leftSide _ = Nothing` it will return `{ identifier = "Nothing" }`
--- if cursor is at `N` inside of `leftSide _ = A.M.Nothing` it will return `{ module = "A.M", identifier = "Nothing" }`
--- if cursor is at `N` inside of `leftSide _ = A.M.Nothing.somefung` it will return `{ module = "A.M", identifier = "Nothing" }`
+-- Identifier is a string, [A-Za-z0-9_.]
+-- if cursor is at any character of `M.Nothing` inside of `leftSide _ = M.Nothing` it will return `{ module = "M", identifier = "Nothing" }`
+-- if cursor is at any character of `Nothing` inside of `leftSide _ = Nothing` it will return `{ identifier = "Nothing" }`
+-- if cursor is at any character of `A.M.Nothing` inside of `leftSide _ = A.M.Nothing` it will return `{ module = "A.M", identifier = "Nothing" }`
+-- if cursor is at any character of `A.M.Nothing.something` inside of `leftSide _ = A.M.Nothing.something` it will return `{ module = "A.M.Nothing", identifier = "something" }`
+-- if cursor is at any character of `JsonDecodeError` inside of `decodeWorkerInput :: J.Json -> Either JsonDecodeError WorkerInput_Implementation` it will return `{ identifier = "JsonDecodeError" }`
 --
 -- to test :lua =require("nvimmer-ps.utils.get_identifier_at_cursor")()
+
+
 local function get_identifier_at_cursor()
-	-- Get the current line and cursor position
-	local line = vim.fn.getline(".")
-	local col = vim.fn.col(".") - 1 -- Adjust for 0-based index
+	local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
+	local line = vim.api.nvim_buf_get_lines(0, cursor_row - 1, cursor_row, false)[1]
 
-	-- Find the start and end of the identifier at the cursor position
-	local start_pos = col
-	local end_pos = col
-
-	-- Move backwards to find the start of the identifier
-	while
-		start_pos > 0
-		and (line:sub(start_pos, start_pos):match("[%w%.]") or line:sub(start_pos, start_pos) == "_")
-	do
-		start_pos = start_pos - 1
+	-- Find the start and end of the identifier
+	local start_col = cursor_col + 1 -- +1 because Lua strings are 1-indexed
+	while start_col > 1 and line:sub(start_col - 1, start_col - 1):match('[A-Za-z0-9_.]') do
+		start_col = start_col - 1
 	end
 
-	-- Move forwards to find the end of the identifier
-	while
-		end_pos < #line
-		and (
-			line:sub(end_pos + 1, end_pos + 1):match("%w") or line:sub(end_pos + 1, end_pos + 1) == "_"
-		)
-	do
-		end_pos = end_pos + 1
+	local end_col = start_col
+	while end_col <= #line and line:sub(end_col, end_col):match('[A-Za-z0-9_.]') do
+		end_col = end_col + 1
+	end
+	end_col = end_col - 1
+
+	local full_identifier = line:sub(start_col, end_col)
+
+	-- Split the identifier into module and name parts
+	local parts = {}
+	for part in full_identifier:gmatch('[^.]+') do
+		table.insert(parts, part)
 	end
 
-	-- Get the complete identifier from the line
-	local full_identifier = line:sub(start_pos + 1, end_pos)
-
-	-- Split the identifier to handle qualified identifiers
-	local parts = vim.split(full_identifier, "%.")
-
-	-- Handle cases with module names
+	local result = {}
 	if #parts > 1 then
-		local identifier = parts[#parts]
-		table.remove(parts, #parts)
-		local module = table.concat(parts, ".")
-		return { module = module, identifier = identifier }
+		result.identifier = parts[#parts]
+		result.module = table.concat(parts, ".", 1, #parts - 1)
 	else
-		return { identifier = full_identifier }
+		result.identifier = parts[1]
 	end
+
+	return result
 end
 
 return get_identifier_at_cursor
