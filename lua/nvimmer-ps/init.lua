@@ -15,6 +15,45 @@ local function print_inspect_to_file(data)
 	file:close()
 end
 
+-- Why not use vim.ui.select?
+-- Because if neovim will receive window/showMessageRequest - it will be shown in floating window before showing vim.ui.select window
+local function my_vim_ui_select(items, opts, callback)
+	vim.validate {
+		items = { items, "t" },
+		opts = { opts, "t" },
+		["opts.prompt"] = { opts.prompt, "s" },
+		["opts.format_item"] = { opts.format_item, "f" },
+		callback = { callback, "f" },
+	}
+
+	for _, item in ipairs(items) do
+		vim.validate {
+			item = { item, "s" },
+		}
+	end
+
+	require("telescope.pickers").new(opts, {
+		results = items,
+		prompt_title = opts.prompt,
+		finder = require("telescope.finders").new_table {
+			results = items,
+			entry_maker = function(item)
+				local display = opts.format_item(item)
+				return { value = item, display = display, ordinal = display }
+			end,
+		},
+		sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
+		attach_mappings = function(_, map)
+			map("i", "<CR>", function(prompt_bufnr)
+				local selection = require("telescope.actions.state").get_selected_entry()
+				require("telescope.actions").close(prompt_bufnr)
+				callback(selection.value)
+			end)
+			return true
+		end,
+	}):find()
+end
+
 -- Function to request a command from the PureScript language server
 local function request_command(command, arguments, callback)
 	local clients =
@@ -56,7 +95,7 @@ function M.add_import()
 		end
 
 		-- Allow user to select a module
-		vim.ui.select(modules, {
+		my_vim_ui_select(modules, {
 			prompt = "Select module to import:",
 			format_item = function(item) return item end,
 		}, function(selected_module)
@@ -136,8 +175,11 @@ function M.add_explicit_import()
 					return
 				end
 
-				vim.ui.select(result,
-					{ prompt = "Select module for " .. ident .. ":", format_item = function(item) return item end },
+				my_vim_ui_select(result,
+					{
+						prompt = "Select module for " .. ident .. ":",
+						format_item = function(item) return item end,
+					},
 					function(selected_module)
 						if not selected_module then
 							vim.notify("You didn't select a module", vim.log.levels.WARN)
@@ -275,7 +317,7 @@ function M.setup_on_init(client)
 										string.format("From: %s", type_info["module'"]),
 										string.format("Type: %s", type_info["type'"]),
 									}
-									if type_info.documentation then
+									if type_info.documentation and not vim.tbl_isempty(type_info.documentation) then
 										table.insert(lines, string.format("Documentation: %s", type_info.documentation))
 									end
 									return table.concat(lines, "\n")
@@ -284,6 +326,7 @@ function M.setup_on_init(client)
 							}
 						end,
 					},
+					sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
 					attach_mappings = function(_, map)
 						map("i", "<CR>", function(prompt_bufnr)
 							local selection = require("telescope.actions.state").get_selected_entry()
@@ -503,6 +546,7 @@ function M.search_pursuit()
 									}
 								end,
 							},
+							sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
 							previewer = previewers.new_buffer_previewer {
 								define_preview = function(self, entry, _status)
 									local content = vim.inspect(entry)
@@ -562,6 +606,7 @@ function M.search_pursuit_modules()
 									}
 								end,
 							},
+							sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
 							attach_mappings = function(_, map)
 								map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
 								map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
