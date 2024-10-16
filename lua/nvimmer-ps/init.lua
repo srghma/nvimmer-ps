@@ -15,8 +15,39 @@ local function print_inspect_to_file(data)
 	file:close()
 end
 
+local function open_url(url)
+	vim.validate {
+		url = { url, "s" },
+	}
+
+	local cmd
+	if vim.fn.has('win32') == 1 or vim.fn.has('win64') == 1 then
+		cmd = { 'cmd.exe', '/c', 'start', '""', url }
+	elseif vim.fn.has('mac') == 1 or vim.fn.has('macunix') == 1 or vim.fn.has('gui_macvim') == 1 then
+		cmd = { 'open', url }
+	else
+		cmd = { 'xdg-open', url }
+	end
+
+	local result = vim.fn.jobstart(cmd, {
+		detach = true,
+		on_stderr = function(_, data)
+			if data and #data > 0 then
+				vim.notify("Error opening URL: " .. vim.inspect(data), vim.log.levels.ERROR)
+			end
+		end
+	})
+
+	if result <= 0 then
+		vim.notify("Failed to open URL: " .. url, vim.log.levels.ERROR)
+	end
+end
+
 -- Why not use vim.ui.select?
 -- Because if neovim will receive window/showMessageRequest - it will be shown in floating window before showing vim.ui.select window
+--
+-- by design https://github.com/neovim/neovim/blob/f72dc2b4c805f309f23aff62b3e7ba7b71a554d2/runtime/lua/vim/lsp/handlers.lua#L76
+-- TODO: make a pr to purescript-ls to not issue window/showMessageRequest ?
 local function my_vim_ui_select(items, opts, callback)
 	vim.validate {
 		items = { items, "t" },
@@ -460,7 +491,7 @@ local function handle_enter_key(prompt_bufnr)
 	require("telescope.actions").close(prompt_bufnr)
 	if selection then
 		-- Open the URL in the browser
-		vim.fn.system("xdg-open " .. selection.value.url) -- Change this to your OS's command if needed
+		open_url(selection.value.url)
 	end
 end
 
@@ -490,7 +521,7 @@ local function handle_ctrl_i(at_cursor, prompt_bufnr)
 	elseif selection.value.info.type == "package" then
 		vim.notify("Selected module is a package, not a declaration, opening link in browser",
 			vim.log.levels.WARN)
-		vim.fn.system("xdg-open " .. selection.value.url)
+		open_url(selection.value.url)
 	elseif selection.value.info.type == "module" then
 		local selected_module = selection.value.info.module
 		local qualifier = at_cursor.module or nil
@@ -619,6 +650,46 @@ function M.search_pursuit_modules()
 	)
 end
 
+function M.pursuit_query(query)
+	vim.validate {
+		query = { query, "s" },
+	}
+
+	if #query == 0 then
+		vim.notify("No query provided", vim.log.levels.WARN)
+		return
+	end
+
+	open_url("https://pursuit.purescript.org/search?q=" .. query)
+end
+
+local function get_visual_selection()
+	local s_start = vim.fn.getpos("'<")
+	local s_end = vim.fn.getpos("'>")
+	local n_lines = math.abs(s_end[2] - s_start[2]) + 1
+	local lines = vim.api.nvim_buf_get_lines(0, s_start[2] - 1, s_end[2], false)
+	lines[1] = string.sub(lines[1], s_start[3], -1)
+	if n_lines == 1 then
+		lines[n_lines] = string.sub(lines[n_lines], 1, s_end[3] - s_start[3] + 1)
+	else
+		lines[n_lines] = string.sub(lines[n_lines], 1, s_end[3])
+	end
+	return table.concat(lines, '\n')
+end
+
+function M.pursuit_query_visual()
+	local query = get_visual_selection()
+	vim.notify("Opening query: " .. query, vim.log.levels.INFO)
+	M.pursuit_query(query)
+end
+
+function M.pursuit_query_normal()
+	local at_cursor = get_identifier_at_cursor()
+	local query = table.concat({ at_cursor.module, at_cursor.identifier }, ".")
+	vim.notify("Opening query: " .. query, vim.log.levels.INFO)
+	M.pursuit_query(query)
+end
+
 ----------------------------------------------------------------------------------
 function M.setup_on_attach(_client, bufnr)
 	vim.lsp.set_log_level("debug")
@@ -632,6 +703,10 @@ function M.setup_on_attach(_client, bufnr)
 			{ noremap = true, silent = true, desc = desc }
 		)
 	end
+
+	-- add command to vim :PSearch
+	vim.api.nvim_create_user_command("PSearch", function(opts) M.pursuit_query(opts.args) end,
+		{ nargs = 1, desc = "Open browser with https://pursuit.purescript.org/search?q=SELECTION" })
 
 	-- m for import module
 	set_keymap(
@@ -680,6 +755,18 @@ function M.setup_on_attach(_client, bufnr)
 		"<space>alr",
 		'<Cmd>lua require("nvimmer-ps").restart()<CR>',
 		"Purescript: Restart"
+	)
+	set_keymap(
+		"v",
+		"<space>asq",
+		'<Cmd>lua require("nvimmer-ps").pursuit_query_normal()<CR>',
+		"Purescript: open browser with https://pursuit.purescript.org/search?q=IDENTIFIER"
+	)
+	set_keymap(
+		"v",
+		"<space>asq",
+		'<Cmd>lua require("nvimmer-ps").pursuit_query_visual()<CR>',
+		"Purescript: open browser with https://pursuit.purescript.org/search?q=SELECTION"
 	)
 end
 
