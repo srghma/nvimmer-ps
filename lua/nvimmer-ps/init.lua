@@ -297,6 +297,7 @@ function M.add_clause()
 end
 
 function M.setup_on_init(client)
+	print(vim.inspect("setup_on_init"))
 	client.commands["purescript.typedHole"] = function(command, _ctx)
 		local hole_name, uri, range = unpack(command.arguments)
 		local type_infos = { select(4, unpack(command.arguments)) }
@@ -691,8 +692,13 @@ function M.pursuit_query_normal()
 end
 
 ----------------------------------------------------------------------------------
+
 function M.setup_on_attach(_client, bufnr)
-	vim.lsp.set_log_level("debug")
+	-- vim.lsp.set_log_level("debug")
+
+	print(vim.inspect("setup_on_attach"))
+	print(vim.inspect(M.current_config))
+	local keymaps = M.current_config.keymaps
 
 	local function set_keymap(mode, key, command, desc)
 		vim.api.nvim_buf_set_keymap(
@@ -708,66 +714,115 @@ function M.setup_on_attach(_client, bufnr)
 	vim.api.nvim_create_user_command("PSearch", function(opts) M.pursuit_query(opts.args) end,
 		{ nargs = 1, desc = "Open browser with https://pursuit.purescript.org/search?q=SELECTION" })
 
-	-- m for import module
+	-- Normal mode mappings
 	set_keymap(
 		"n",
-		"<space>am",
+		keymaps.normal_mode.add_import,
 		'<Cmd>lua require("nvimmer-ps").add_import()<CR>',
 		"Purescript: Add import - Show list of available modules, enter to import"
 	)
 	set_keymap(
 		"n",
-		"<space>ae",
+		keymaps.normal_mode.add_explicit_import,
 		'<Cmd>lua require("nvimmer-ps").add_explicit_import()<CR>',
 		"Purescript: Add explicit import - Will get current symbol, allow change it, show modules that contain it, enter to import"
 	)
 	set_keymap(
 		"n",
-		"<space>asi",
+		keymaps.normal_mode.search_pursuit,
 		'<Cmd>lua require("nvimmer-ps").search_pursuit()<CR>',
 		"Purescript: Search Pursuit - Search identifier under cursor"
 	)
 	set_keymap(
 		"n",
-		"<space>asm",
+		keymaps.normal_mode.search_pursuit_modules,
 		'<Cmd>lua require("nvimmer-ps").search_pursuit_modules()<CR>',
 		"Purescript: Search Pursuit modules"
 	)
 	set_keymap(
 		"n",
-		"<space>ac",
+		keymaps.normal_mode.case_split,
 		'<Cmd>lua require("nvimmer-ps").case_split()<CR>',
 		"Purescript: Case split"
 	)
 	set_keymap(
 		"n",
-		"<space>aa",
+		keymaps.normal_mode.add_clause,
 		'<Cmd>lua require("nvimmer-ps").add_clause()<CR>',
 		"Purescript: Add clause"
 	)
-
-	-- prefix + l for language server + ...
-	set_keymap("n", "<space>alb", '<Cmd>lua require("nvimmer-ps").build()<CR>', "Purescript: Build")
-	set_keymap("n", "<space>als", '<Cmd>lua require("nvimmer-ps").start()<CR>', "Purescript: Start")
-	set_keymap("n", "<space>alt", '<Cmd>lua require("nvimmer-ps").stop()<CR>', "Purescript: Stop")
 	set_keymap(
 		"n",
-		"<space>alr",
+		keymaps.normal_mode.build,
+		'<Cmd>lua require("nvimmer-ps").build()<CR>',
+		"Purescript: Build"
+	)
+	set_keymap(
+		"n",
+		keymaps.normal_mode.start,
+		'<Cmd>lua require("nvimmer-ps").start()<CR>',
+		"Purescript: Start"
+	)
+	set_keymap(
+		"n",
+		keymaps.normal_mode.stop,
+		'<Cmd>lua require("nvimmer-ps").stop()<CR>',
+		"Purescript: Stop"
+	)
+	set_keymap(
+		"n",
+		keymaps.normal_mode.restart,
 		'<Cmd>lua require("nvimmer-ps").restart()<CR>',
 		"Purescript: Restart"
 	)
 	set_keymap(
-		"v",
-		"<space>asq",
+		"n",
+		keymaps.normal_mode.pursuit_query,
 		'<Cmd>lua require("nvimmer-ps").pursuit_query_normal()<CR>',
 		"Purescript: open browser with https://pursuit.purescript.org/search?q=IDENTIFIER"
 	)
+
+	-- Visual mode mappings
 	set_keymap(
 		"v",
-		"<space>asq",
+		keymaps.visual_mode.pursuit_query,
 		'<Cmd>lua require("nvimmer-ps").pursuit_query_visual()<CR>',
 		"Purescript: open browser with https://pursuit.purescript.org/search?q=SELECTION"
 	)
+end
+
+----------------------------------------------------------------------------------
+local default_keymaps = {
+	normal_mode = {
+		add_import = "<space>am",
+		add_explicit_import = "<space>ae",
+		search_pursuit = "<space>asi",
+		search_pursuit_modules = "<space>asm",
+		case_split = "<space>ac",
+		add_clause = "<space>aa",
+		-- prefix + l for language server + ...
+		build = "<space>alb",
+		start = "<space>als",
+		stop = "<space>alt",
+		restart = "<space>alr",
+		pursuit_query = "<space>asq"
+	},
+	visual_mode = {
+		pursuit_query = "<space>asq"
+	}
+}
+
+M.current_config = nil
+
+-- should be called before setup_on_attach
+function M.setup(config_overrides)
+	print(vim.inspect(config_overrides))
+	config_overrides = config_overrides or {}
+	vim.validate {
+		config_overrides = { config_overrides, "t" },
+	}
+	M.current_config = vim.tbl_deep_extend("force", { keymaps = default_keymaps },
+		config_overrides)
 end
 
 return M

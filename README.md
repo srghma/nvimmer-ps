@@ -4,7 +4,44 @@ a neovim plugin for PureScript that supplements the built-in purescript-language
 
 # HOW TO INSTALL
 
-check https://github.com/AstroNvim/astrocommunity/pull/1222
+```lua
+-- lazy.nvim
+{
+  "srghma/nvimmer-ps",
+  dependencies = {
+    "nvim-lua/plenary.nvim",     -- Add plenary.nvim as a dependency
+    "nvim-telescope/telescope.nvim", -- Add telescope.nvim as a dependency
+  },
+  config = function()
+    -- or require("nvimmer-ps").setup({ keymaps = { ... } })
+    require("nvimmer-ps").setup()
+    
+		local nvim_lsp = require("lspconfig")
+		nvim_lsp.purescriptls.setup({
+			on_attach = function(client, bufnr)
+				require("nvimmer-ps").setup_on_attach(client, bufnr)
+			end,
+			on_init = function(client)
+				require("nvimmer-ps").setup_on_init(client)
+			end,
+			flags = {
+				debounce_text_changes = 150,
+			},
+			settings = {
+				purescript = {
+					formatter = "purs-tidy",
+					addSpagoSources = true,
+				},
+			},
+		})
+  end,
+}
+```
+
+OR check https://github.com/AstroNvim/astrocommunity/pull/1222
+
+OR check `./nvim-config-test.lua` (can be run with `nvim --clean -u ./nvim-config-test.lua ~/projects/purescript-pathy-node/src/Pathy/Node/OS.purs`)
+
 
 # Commands
 
