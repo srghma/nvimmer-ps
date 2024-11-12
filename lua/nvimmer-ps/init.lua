@@ -297,7 +297,7 @@ function M.add_clause()
 end
 
 function M.setup_on_init(client)
-	print(vim.inspect("setup_on_init"))
+	-- print(vim.inspect("setup_on_init"))
 	client.commands["purescript.typedHole"] = function(command, _ctx)
 		local hole_name, uri, range = unpack(command.arguments)
 		local type_infos = { select(4, unpack(command.arguments)) }
@@ -696,8 +696,8 @@ end
 function M.setup_on_attach(_client, bufnr)
 	-- vim.lsp.set_log_level("debug")
 
-	print(vim.inspect("setup_on_attach"))
-	print(vim.inspect(M.current_config))
+	-- print(vim.inspect("setup_on_attach"))
+	-- print(vim.inspect(M.current_config))
 	local keymaps = M.current_config.keymaps
 
 	local function set_keymap(mode, key, command, desc)
@@ -816,7 +816,7 @@ M.current_config = nil
 
 -- should be called before setup_on_attach
 function M.setup(config_overrides)
-	print(vim.inspect(config_overrides))
+	-- print(vim.inspect(config_overrides))
 	config_overrides = config_overrides or {}
 	vim.validate {
 		config_overrides = { config_overrides, "t" },
