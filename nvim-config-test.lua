@@ -2,12 +2,12 @@
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
 	local lazyrepo = "https://github.com/folke/lazy.nvim.git"
-	local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo,
-		lazypath })
+	local out =
+		vim.fn.system { "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo, lazypath }
 	if vim.v.shell_error ~= 0 then
 		vim.api.nvim_echo({
 			{ "Failed to clone lazy.nvim:\n", "ErrorMsg" },
-			{ out,                            "WarningMsg" },
+			{ out, "WarningMsg" },
 			{ "\nPress any key to exit..." },
 		}, true, {})
 		vim.fn.getchar()
@@ -23,32 +23,32 @@ vim.g.mapleader = " "
 vim.g.maplocalleader = "\\"
 
 -- Setup lazy.nvim
-require("lazy").setup({
+require("lazy").setup {
 	spec = {
 		{
 			-- "srghma/nvimmer-ps",
 			dir = "/home/srghma/projects/nvimmer-ps",
 			config = function()
-				print('nvimmer-ps loaded')
+				print("nvimmer-ps loaded")
 				require("nvimmer-ps").setup()
 			end,
 			dependencies = {
-				"nvim-lua/plenary.nvim",     -- Add plenary.nvim as a dependency
+				"nvim-lua/plenary.nvim", -- Add plenary.nvim as a dependency
 				"nvim-telescope/telescope.nvim", -- Add telescope.nvim as a dependency
 			},
 		},
 		{
 			"neovim/nvim-lspconfig",
 			config = function()
-				print('neovim/nvim-lspconfig loaded')
+				print("neovim/nvim-lspconfig loaded")
 				local nvim_lsp = require("lspconfig")
-				nvim_lsp.purescriptls.setup({
+				nvim_lsp.purescriptls.setup {
 					on_attach = function(client, bufnr)
-						print('nvimmer-ps on_attach')
+						print("nvimmer-ps on_attach")
 						require("nvimmer-ps").setup_on_attach(client, bufnr)
 					end,
 					on_init = function(client)
-						print('nvimmer-ps on_init')
+						print("nvimmer-ps on_init")
 						require("nvimmer-ps").setup_on_init(client)
 					end,
 					flags = {
@@ -60,7 +60,7 @@ require("lazy").setup({
 							addSpagoSources = true,
 						},
 					},
-				})
+				}
 			end,
 		},
 	},
@@ -69,10 +69,10 @@ require("lazy").setup({
 	install = { colorscheme = { "habamax" } },
 	-- automatically check for plugin updates
 	checker = { enabled = true },
-})
+}
 
-vim.filetype.add({
+vim.filetype.add {
 	extension = {
-		purs = "purescript"
-	}
-})
+		purs = "purescript",
+	},
+}

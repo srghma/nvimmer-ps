@@ -8,19 +8,18 @@
 --
 -- to test :lua =require("nvimmer-ps.utils.get_identifier_at_cursor")()
 
-
 local function get_identifier_at_cursor()
 	local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
 	local line = vim.api.nvim_buf_get_lines(0, cursor_row - 1, cursor_row, false)[1]
 
 	-- Find the start and end of the identifier
 	local start_col = cursor_col + 1 -- +1 because Lua strings are 1-indexed
-	while start_col > 1 and line:sub(start_col - 1, start_col - 1):match('[A-Za-z0-9_.]') do
+	while start_col > 1 and line:sub(start_col - 1, start_col - 1):match("[A-Za-z0-9_.]") do
 		start_col = start_col - 1
 	end
 
 	local end_col = start_col
-	while end_col <= #line and line:sub(end_col, end_col):match('[A-Za-z0-9_.]') do
+	while end_col <= #line and line:sub(end_col, end_col):match("[A-Za-z0-9_.]") do
 		end_col = end_col + 1
 	end
 	end_col = end_col - 1
@@ -29,7 +28,7 @@ local function get_identifier_at_cursor()
 
 	-- Split the identifier into module and name parts
 	local parts = {}
-	for part in full_identifier:gmatch('[^.]+') do
+	for part in full_identifier:gmatch("[^.]+") do
 		table.insert(parts, part)
 	end
 

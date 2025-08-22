@@ -21,12 +21,12 @@ local function open_url(url)
 	}
 
 	local cmd
-	if vim.fn.has('win32') == 1 or vim.fn.has('win64') == 1 then
-		cmd = { 'cmd.exe', '/c', 'start', '""', url }
-	elseif vim.fn.has('mac') == 1 or vim.fn.has('macunix') == 1 or vim.fn.has('gui_macvim') == 1 then
-		cmd = { 'open', url }
+	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+		cmd = { "cmd.exe", "/c", "start", '""', url }
+	elseif vim.fn.has("mac") == 1 or vim.fn.has("macunix") == 1 or vim.fn.has("gui_macvim") == 1 then
+		cmd = { "open", url }
 	else
-		cmd = { 'xdg-open', url }
+		cmd = { "xdg-open", url }
 	end
 
 	local result = vim.fn.jobstart(cmd, {
@@ -35,12 +35,10 @@ local function open_url(url)
 			if data and #data > 0 then
 				vim.notify("Error opening URL: " .. vim.inspect(data), vim.log.levels.ERROR)
 			end
-		end
+		end,
 	})
 
-	if result <= 0 then
-		vim.notify("Failed to open URL: " .. url, vim.log.levels.ERROR)
-	end
+	if result <= 0 then vim.notify("Failed to open URL: " .. url, vim.log.levels.ERROR) end
 end
 
 -- Why not use vim.ui.select?
@@ -63,39 +61,41 @@ local function my_vim_ui_select(items, opts, callback)
 		}
 	end
 
-	require("telescope.pickers").new(opts, {
-		results = items,
-		prompt_title = opts.prompt,
-		finder = require("telescope.finders").new_table {
+	require("telescope.pickers")
+		.new(opts, {
 			results = items,
-			entry_maker = function(item)
-				local display = opts.format_item(item)
-				return { value = item, display = display, ordinal = display }
+			prompt_title = opts.prompt,
+			finder = require("telescope.finders").new_table {
+				results = items,
+				entry_maker = function(item)
+					local display = opts.format_item(item)
+					return { value = item, display = display, ordinal = display }
+				end,
+			},
+			sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
+			attach_mappings = function(_, map)
+				map("i", "<CR>", function(prompt_bufnr)
+					local selection = require("telescope.actions.state").get_selected_entry()
+					require("telescope.actions").close(prompt_bufnr)
+					callback(selection.value)
+				end)
+				return true
 			end,
-		},
-		sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
-		attach_mappings = function(_, map)
-			map("i", "<CR>", function(prompt_bufnr)
-				local selection = require("telescope.actions.state").get_selected_entry()
-				require("telescope.actions").close(prompt_bufnr)
-				callback(selection.value)
-			end)
-			return true
-		end,
-	}):find()
+		})
+		:find()
 end
 
 -- Function to request a command from the PureScript language server
 local function request_command(command, arguments, callback)
 	local clients =
-			vim.lsp.get_clients { name = "purescriptls", bufnr = vim.api.nvim_get_current_buf() }
+		vim.lsp.get_clients { name = "purescriptls", bufnr = vim.api.nvim_get_current_buf() }
 	if #clients == 0 then
 		vim.notify("No active clients for purescriptls", vim.log.levels.WARN)
 		return
 	end
 
 	for _, client in ipairs(clients) do
-		print_inspect_to_file "sending command"
+		print_inspect_to_file("sending command")
 		print_inspect_to_file {
 			command = command or "No command",
 			arguments = arguments or "No arguments",
@@ -105,13 +105,15 @@ local function request_command(command, arguments, callback)
 			command = command,
 			arguments = arguments,
 		}, function(err, result, ctx)
-			print_inspect_to_file "received response"
+			print_inspect_to_file("received response")
 			print_inspect_to_file {
 				err = err or "No error",
 				result = result or "No result",
 				ctx = ctx or "No context",
 			}
-			if err then vim.notify("Error in request_command: " .. vim.inspect(err), vim.log.levels.ERROR) end
+			if err then
+				vim.notify("Error in request_command: " .. vim.inspect(err), vim.log.levels.ERROR)
+			end
 			if callback then callback(err, result, ctx) end
 		end)
 	end
@@ -184,58 +186,49 @@ function M.add_explicit_import()
 			return
 		end
 
-		request_command(
-			"purescript.addCompletionImport",
-			{
-				ident,               -- ident
-				nil,                 -- module
-				at_cursor.module or nil, -- qualifier
-				uri,                 -- uri
-				""                   -- namespace
-			},
-			function(err, result)
-				-- will return array like { "Data.Argonaut.Decode", "Data.Argonaut.Decode.Error", "Data.Codec.Argonaut", "Data.Codec.Argonaut.Common", "Data.Codec.Argonaut.Compat" }
+		request_command("purescript.addCompletionImport", {
+			ident, -- ident
+			nil, -- module
+			at_cursor.module or nil, -- qualifier
+			uri, -- uri
+			"", -- namespace
+		}, function(err, result)
+			-- will return array like { "Data.Argonaut.Decode", "Data.Argonaut.Decode.Error", "Data.Codec.Argonaut", "Data.Codec.Argonaut.Common", "Data.Codec.Argonaut.Compat" }
 
-				if err then
-					vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
+			if err then
+				vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
+				return
+			end
+
+			if not result and type(result) ~= "table" and #result <= 0 then
+				vim.notify("No modules provide this identifier", vim.log.levels.WARN)
+				return
+			end
+
+			my_vim_ui_select(result, {
+				prompt = "Select module for " .. ident .. ":",
+				format_item = function(item) return item end,
+			}, function(selected_module)
+				if not selected_module then
+					vim.notify("You didn't select a module", vim.log.levels.WARN)
 					return
 				end
 
-				if not result and type(result) ~= "table" and #result <= 0 then
-					vim.notify("No modules provide this identifier", vim.log.levels.WARN)
-					return
-				end
-
-				my_vim_ui_select(result,
-					{
-						prompt = "Select module for " .. ident .. ":",
-						format_item = function(item) return item end,
-					},
-					function(selected_module)
-						if not selected_module then
-							vim.notify("You didn't select a module", vim.log.levels.WARN)
-							return
-						end
-
-						request_command(
-							"purescript.addCompletionImport",
-							{
-								ident,           -- ident
-								selected_module, -- module
-								at_cursor.module or nil, -- qualifier
-								uri,             -- uri
-								""               -- namespace
-							},
-							function(err, _result)
-								if err then
-									vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
-									return
-								end
-								vim.notify("Module import added successfully", vim.log.levels.INFO)
-							end
-						)
-					end)
+				request_command("purescript.addCompletionImport", {
+					ident, -- ident
+					selected_module, -- module
+					at_cursor.module or nil, -- qualifier
+					uri, -- uri
+					"", -- namespace
+				}, function(err, _result)
+					if err then
+						vim.notify("Error adding import: " .. vim.inspect(err), vim.log.levels.ERROR)
+						return
+					end
+					vim.notify("Module import added successfully", vim.log.levels.INFO)
+				end)
 			end)
+		end)
 	end)
 end
 
@@ -335,54 +328,58 @@ function M.setup_on_init(client)
 
 		-- Use Telescope to display the suggestions
 		require("telescope.pickers")
-				.new({}, {
-					prompt_title = "Select Typed Hole Suggestions for " .. hole_name,
-					finder = require("telescope.finders").new_table {
-						results = type_infos,
-						entry_maker = function(type_info)
-							return {
-								value = type_info,
-								display = function()
-									-- Format the display for each entry
-									local lines = {
-										string.format("Identifier: %s", type_info.identifier),
-										string.format("From: %s", type_info["module'"]),
-										string.format("Type: %s", type_info["type'"]),
-									}
-									if type_info.documentation and not vim.tbl_isempty(type_info.documentation) then
-										table.insert(lines, string.format("Documentation: %s", type_info.documentation))
-									end
-									return table.concat(lines, "\n")
-								end,
-								ordinal = type_info.identifier, -- For sorting
-							}
-						end,
-					},
-					sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
-					attach_mappings = function(_, map)
-						map("i", "<CR>", function(prompt_bufnr)
-							local selection = require("telescope.actions.state").get_selected_entry()
-							require("telescope.actions").close(prompt_bufnr)
-
-							-- Call the typedHole-explicit command with the selected choice
-							request_command(
-								"purescript.typedHole-explicit",
-								{ selection.value.identifier, uri, range, selection.value },
-								function(err, result)
-									if err then
-										vim.notify("Error applying typed hole suggestion: " .. vim.inspect(err),
-											vim.log.levels.ERROR)
-									else
-										vim.notify("Typed hole suggestion applied successfully" .. vim.inspect(result),
-											vim.log.levels.INFO)
-									end
+			.new({}, {
+				prompt_title = "Select Typed Hole Suggestions for " .. hole_name,
+				finder = require("telescope.finders").new_table {
+					results = type_infos,
+					entry_maker = function(type_info)
+						return {
+							value = type_info,
+							display = function()
+								-- Format the display for each entry
+								local lines = {
+									string.format("Identifier: %s", type_info.identifier),
+									string.format("From: %s", type_info["module'"]),
+									string.format("Type: %s", type_info["type'"]),
+								}
+								if type_info.documentation and not vim.tbl_isempty(type_info.documentation) then
+									table.insert(lines, string.format("Documentation: %s", type_info.documentation))
 								end
-							)
-						end)
-						return true
+								return table.concat(lines, "\n")
+							end,
+							ordinal = type_info.identifier, -- For sorting
+						}
 					end,
-				})
-				:find()
+				},
+				sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
+				attach_mappings = function(_, map)
+					map("i", "<CR>", function(prompt_bufnr)
+						local selection = require("telescope.actions.state").get_selected_entry()
+						require("telescope.actions").close(prompt_bufnr)
+
+						-- Call the typedHole-explicit command with the selected choice
+						request_command(
+							"purescript.typedHole-explicit",
+							{ selection.value.identifier, uri, range, selection.value },
+							function(err, result)
+								if err then
+									vim.notify(
+										"Error applying typed hole suggestion: " .. vim.inspect(err),
+										vim.log.levels.ERROR
+									)
+								else
+									vim.notify(
+										"Typed hole suggestion applied successfully" .. vim.inspect(result),
+										vim.log.levels.INFO
+									)
+								end
+							end
+						)
+					end)
+					return true
+				end,
+			})
+			:find()
 	end
 end
 
@@ -456,8 +453,10 @@ local function pursuit_request(search_term, callback)
 			end
 		end
 
-		pcall(validate_result,
-			function(err) vim.notify("Validation error: " .. err, vim.log.levels.ERROR) end)
+		pcall(
+			validate_result,
+			function(err) vim.notify("Validation error: " .. err, vim.log.levels.ERROR) end
+		)
 	end
 
 	callback(decoded, nil) -- Pass the decoded result to the callback
@@ -514,14 +513,18 @@ local function handle_ctrl_i(at_cursor, prompt_bufnr)
 				if err then
 					vim.notify("Error adding completion import: " .. vim.inspect(err), vim.log.levels.ERROR)
 				else
-					vim.notify("Completion import added successfully: " .. selection.value.info.title,
-						vim.log.levels.INFO)
+					vim.notify(
+						"Completion import added successfully: " .. selection.value.info.title,
+						vim.log.levels.INFO
+					)
 				end
 			end
 		)
 	elseif selection.value.info.type == "package" then
-		vim.notify("Selected module is a package, not a declaration, opening link in browser",
-			vim.log.levels.WARN)
+		vim.notify(
+			"Selected module is a package, not a declaration, opening link in browser",
+			vim.log.levels.WARN
+		)
 		open_url(selection.value.url)
 	elseif selection.value.info.type == "module" then
 		local selected_module = selection.value.info.module
@@ -564,36 +567,35 @@ function M.search_pursuit()
 				end
 
 				require("telescope.pickers")
-						.new({}, {
-							prompt_title =
-							"Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
-							finder = require("telescope.finders").new_table {
-								results = results,
-								entry_maker = function(item)
-									local formatted_url = url_to_path_with_query(item.url)
-									return {
-										value = item,
-										display = formatted_url,
-										ordinal = formatted_url, -- For sorting
-									}
-								end,
-							},
-							sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
-							previewer = previewers.new_buffer_previewer {
-								define_preview = function(self, entry, _status)
-									local content = vim.inspect(entry)
-									self.state.bufnr = self.state.bufnr or vim.api.nvim_create_buf(false, true)
-									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.split(content, "\n"))
-									-- vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
-								end,
-							},
-							attach_mappings = function(_, map)
-								map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
-								map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
-								return true
+					.new({}, {
+						prompt_title = "Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
+						finder = require("telescope.finders").new_table {
+							results = results,
+							entry_maker = function(item)
+								local formatted_url = url_to_path_with_query(item.url)
+								return {
+									value = item,
+									display = formatted_url,
+									ordinal = formatted_url, -- For sorting
+								}
 							end,
-						})
-						:find()
+						},
+						sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
+						previewer = previewers.new_buffer_previewer {
+							define_preview = function(self, entry, _status)
+								local content = vim.inspect(entry)
+								self.state.bufnr = self.state.bufnr or vim.api.nvim_create_buf(false, true)
+								vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.split(content, "\n"))
+								-- vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
+							end,
+						},
+						attach_mappings = function(_, map)
+							map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
+							map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
+							return true
+						end,
+					})
+					:find()
 			end)
 		end
 	)
@@ -620,32 +622,31 @@ function M.search_pursuit_modules()
 
 				-- Use Telescope to display the results
 				require("telescope.pickers")
-						.new({}, {
-							prompt_title =
-							"Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
-							finder = require("telescope.finders").new_table {
-								results = results,
-								entry_maker = function(item)
-									return {
-										value = item,
-										display = string.format(
-											"%s in %s (%s)",
-											item.info.module,
-											item.package,
-											item.version
-										),
-										ordinal = item.info.module, -- For sorting
-									}
-								end,
-							},
-							sorter = require("telescope.config").values.generic_sorter({}), -- to have fzf input
-							attach_mappings = function(_, map)
-								map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
-								map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
-								return true
+					.new({}, {
+						prompt_title = "Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
+						finder = require("telescope.finders").new_table {
+							results = results,
+							entry_maker = function(item)
+								return {
+									value = item,
+									display = string.format(
+										"%s in %s (%s)",
+										item.info.module,
+										item.package,
+										item.version
+									),
+									ordinal = item.info.module, -- For sorting
+								}
 							end,
-						})
-						:find()
+						},
+						sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
+						attach_mappings = function(_, map)
+							map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
+							map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
+							return true
+						end,
+					})
+					:find()
 			end)
 		end
 	)
@@ -675,7 +676,7 @@ local function get_visual_selection()
 	else
 		lines[n_lines] = string.sub(lines[n_lines], 1, s_end[3])
 	end
-	return table.concat(lines, '\n')
+	return table.concat(lines, "\n")
 end
 
 function M.pursuit_query_visual()
@@ -711,8 +712,11 @@ function M.setup_on_attach(_client, bufnr)
 	end
 
 	-- add command to vim :PSearch
-	vim.api.nvim_create_user_command("PSearch", function(opts) M.pursuit_query(opts.args) end,
-		{ nargs = 1, desc = "Open browser with https://pursuit.purescript.org/search?q=SELECTION" })
+	vim.api.nvim_create_user_command(
+		"PSearch",
+		function(opts) M.pursuit_query(opts.args) end,
+		{ nargs = 1, desc = "Open browser with https://pursuit.purescript.org/search?q=SELECTION" }
+	)
 
 	-- Normal mode mappings
 	set_keymap(
@@ -805,11 +809,11 @@ local default_keymaps = {
 		start = "<space>als",
 		stop = "<space>alt",
 		restart = "<space>alr",
-		pursuit_query = "<space>asq"
+		pursuit_query = "<space>asq",
 	},
 	visual_mode = {
-		pursuit_query = "<space>asq"
-	}
+		pursuit_query = "<space>asq",
+	},
 }
 
 M.current_config = nil
@@ -821,8 +825,7 @@ function M.setup(config_overrides)
 	vim.validate {
 		config_overrides = { config_overrides, "t" },
 	}
-	M.current_config = vim.tbl_deep_extend("force", { keymaps = default_keymaps },
-		config_overrides)
+	M.current_config = vim.tbl_deep_extend("force", { keymaps = default_keymaps }, config_overrides)
 end
 
 return M
