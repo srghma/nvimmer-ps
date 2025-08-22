@@ -1,7 +1,6 @@
 local get_identifier_at_cursor = require("nvimmer-ps.utils.get_identifier_at_cursor")
 local M = {}
 local curl = require("plenary.curl")
-local previewers = require("telescope.previewers")
 
 -- Helper function to print inspection results to a file (for debugging)
 local function print_inspect_to_file(data)
@@ -46,7 +45,7 @@ end
 --
 -- by design https://github.com/neovim/neovim/blob/f72dc2b4c805f309f23aff62b3e7ba7b71a554d2/runtime/lua/vim/lsp/handlers.lua#L76
 -- TODO: make a pr to purescript-ls to not issue window/showMessageRequest ?
-local function my_vim_ui_select(items, opts, callback)
+local function my_snacks_select(items, opts, callback)
   vim.validate {
     items = { items, "t" },
     opts = { opts, "t" },
@@ -61,28 +60,25 @@ local function my_vim_ui_select(items, opts, callback)
     }
   end
 
-  require("telescope.pickers")
-    .new(opts, {
-      results = items,
-      prompt_title = opts.prompt,
-      finder = require("telescope.finders").new_table {
-        results = items,
-        entry_maker = function(item)
-          local display = opts.format_item(item)
-          return { value = item, display = display, ordinal = display }
-        end,
-      },
-      sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
-      attach_mappings = function(_, map)
-        map("i", "<CR>", function(prompt_bufnr)
-          local selection = require("telescope.actions.state").get_selected_entry()
-          require("telescope.actions").close(prompt_bufnr)
-          callback(selection.value)
-        end)
-        return true
-      end,
-    })
-    :find()
+  require("snacks").picker({
+    name = opts.prompt,
+    items = vim.tbl_map(function(item)
+      return {
+        text = opts.format_item(item),
+        value = item,
+      }
+    end, items),
+    format = function(item)
+      return item.text
+    end,
+    confirm = function(picker, item)
+      picker:close()
+      if item and callback then
+        callback(item.value)
+      end
+    end,
+  })
+
 end
 
 -- Function to request a command from the PureScript language server
@@ -128,7 +124,7 @@ function M.add_import()
     end
 
     -- Allow user to select a module
-    my_vim_ui_select(modules, {
+    my_snacks_select(modules, {
       prompt = "Select module to import:",
       format_item = function(item) return item end,
     }, function(selected_module)
@@ -205,7 +201,7 @@ function M.add_explicit_import()
         return
       end
 
-      my_vim_ui_select(result, {
+      my_snacks_select(result, {
         prompt = "Select module for " .. ident .. ":",
         format_item = function(item) return item end,
       }, function(selected_module)
@@ -326,60 +322,51 @@ function M.setup_on_init(client)
       }
     end
 
-    -- Use Telescope to display the suggestions
-    require("telescope.pickers")
-      .new({}, {
-        prompt_title = "Select Typed Hole Suggestions for " .. hole_name,
-        finder = require("telescope.finders").new_table {
-          results = type_infos,
-          entry_maker = function(type_info)
-            return {
-              value = type_info,
-              display = function()
-                -- Format the display for each entry
-                local lines = {
-                  string.format("Identifier: %s", type_info.identifier),
-                  string.format("From: %s", type_info["module'"]),
-                  string.format("Type: %s", type_info["type'"]),
-                }
-                if type_info.documentation and not vim.tbl_isempty(type_info.documentation) then
-                  table.insert(lines, string.format("Documentation: %s", type_info.documentation))
-                end
-                return table.concat(lines, "\n")
-              end,
-              ordinal = type_info.identifier, -- For sorting
-            }
-          end,
-        },
-        sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
-        attach_mappings = function(_, map)
-          map("i", "<CR>", function(prompt_bufnr)
-            local selection = require("telescope.actions.state").get_selected_entry()
-            require("telescope.actions").close(prompt_bufnr)
-
-            -- Call the typedHole-explicit command with the selected choice
-            request_command(
-              "purescript.typedHole-explicit",
-              { selection.value.identifier, uri, range, selection.value },
-              function(err, result)
-                if err then
-                  vim.notify(
-                    "Error applying typed hole suggestion: " .. vim.inspect(err),
-                    vim.log.levels.ERROR
-                  )
-                else
-                  vim.notify(
-                    "Typed hole suggestion applied successfully" .. vim.inspect(result),
-                    vim.log.levels.INFO
-                  )
-                end
-              end
-            )
-          end)
-          return true
-        end,
-      })
-      :find()
+    require("snacks").picker({
+      name = "Select Typed Hole Suggestions for " .. hole_name,
+      items = vim.tbl_map(function(type_info)
+        local lines = {
+          string.format("Identifier: %s", type_info.identifier),
+          string.format("From: %s", type_info["module'"]),
+          string.format("Type: %s", type_info["type'"]),
+        }
+        if type_info.documentation and not vim.tbl_isempty(type_info.documentation) then
+          table.insert(lines, string.format("Documentation: %s", type_info.documentation))
+        end
+        return {
+          text = type_info.identifier,
+          preview = table.concat(lines, "\n"),
+          value = type_info,
+        }
+      end, type_infos),
+      format = function(item)
+        return item.text
+      end,
+      preview = function(item)
+        return item.preview
+      end,
+      confirm = function(picker, item)
+        picker:close()
+        if not item then return end
+        request_command(
+          "purescript.typedHole-explicit",
+          { item.value.identifier, uri, range, item.value },
+          function(err, result)
+            if err then
+              vim.notify(
+                "Error applying typed hole suggestion: " .. vim.inspect(err),
+                vim.log.levels.ERROR
+              )
+            else
+              vim.notify(
+                "Typed hole suggestion applied successfully" .. vim.inspect(result),
+                vim.log.levels.INFO
+              )
+            end
+          end
+        )
+      end,
+    })
   end
 end
 
@@ -486,24 +473,21 @@ local function url_to_path_with_query(url)
   return path_with_query
 end
 
-local function handle_enter_key(prompt_bufnr)
-  local selection = require("telescope.actions.state").get_selected_entry()
-  require("telescope.actions").close(prompt_bufnr)
-  if selection then
+local function handle_enter_key(item)
+  if item then
     -- Open the URL in the browser
-    open_url(selection.value.url)
+    open_url(item.value.url)
   end
 end
 
-local function handle_ctrl_i(at_cursor, prompt_bufnr)
-  local selection = require("telescope.actions.state").get_selected_entry()
-  require("telescope.actions").close(prompt_bufnr)
+local function handle_ctrl_i(at_cursor, item)
+  if not item then return end
 
-  if selection.value.info.type == "declaration" then
+  if item.value.info.type == "declaration" then
     local uri = vim.uri_from_bufnr(0)
-    local ident = selection.value.info.title
+    local ident = item.value.info.title
     local qualifier = at_cursor.module or nil
-    local module = selection.value.info.module
+    local module = item.value.info.module
     local namespace = ""
 
     request_command(
@@ -514,20 +498,20 @@ local function handle_ctrl_i(at_cursor, prompt_bufnr)
           vim.notify("Error adding completion import: " .. vim.inspect(err), vim.log.levels.ERROR)
         else
           vim.notify(
-            "Completion import added successfully: " .. selection.value.info.title,
+            "Completion import added successfully: " .. item.value.info.title,
             vim.log.levels.INFO
           )
         end
       end
     )
-  elseif selection.value.info.type == "package" then
+  elseif item.value.info.type == "package" then
     vim.notify(
       "Selected module is a package, not a declaration, opening link in browser",
       vim.log.levels.WARN
     )
-    open_url(selection.value.url)
-  elseif selection.value.info.type == "module" then
-    local selected_module = selection.value.info.module
+    open_url(item.value.url)
+  elseif item.value.info.type == "module" then
+    local selected_module = item.value.info.module
     local qualifier = at_cursor.module or nil
     local uri = vim.uri_from_bufnr(0)
     -- Issue the import command for the selected module
@@ -566,36 +550,37 @@ function M.search_pursuit()
           return
         end
 
-        require("telescope.pickers")
-          .new({}, {
-            prompt_title = "Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
-            finder = require("telescope.finders").new_table {
-              results = results,
-              entry_maker = function(item)
-                local formatted_url = url_to_path_with_query(item.url)
-                return {
-                  value = item,
-                  display = formatted_url,
-                  ordinal = formatted_url, -- For sorting
-                }
-              end,
-            },
-            sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
-            previewer = previewers.new_buffer_previewer {
-              define_preview = function(self, entry, _status)
-                local content = vim.inspect(entry)
-                self.state.bufnr = self.state.bufnr or vim.api.nvim_create_buf(false, true)
-                vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, vim.split(content, "\n"))
-                -- vim.api.nvim_win_set_buf(status.preview_win, self.state.bufnr)
-              end,
-            },
-            attach_mappings = function(_, map)
-              map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
-              map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
-              return true
-            end,
+        -- Convert results for Snacks picker
+        local formatted_items = {}
+        for _, item in ipairs(results) do
+          local formatted_url = url_to_path_with_query(item.url)
+          table.insert(formatted_items, {
+            text = formatted_url,
+            preview = vim.inspect(item),
+            value = item,
           })
-          :find()
+        end
+
+        require("snacks").picker({
+          name = "Select Module to Import or Open Link",
+          items = formatted_items,
+          format = function(item) return item.text end,
+          preview = function(item) return item.preview end,
+          confirm = function(picker, item)
+            picker:close()
+            handle_enter_key(item)
+          end,
+          actions = {
+            import = {
+              key = "<C-i>",
+              desc = "Import selected item",
+              action = function(picker, item)
+                picker:close()
+                handle_ctrl_i(at_cursor, item)
+              end,
+            },
+          },
+        })
       end)
     end
   )
@@ -620,33 +605,41 @@ function M.search_pursuit_modules()
           return
         end
 
-        -- Use Telescope to display the results
-        require("telescope.pickers")
-          .new({}, {
-            prompt_title = "Select Module to Import or Open Link (click <CR> to open in browser, <C-i> to import)",
-            finder = require("telescope.finders").new_table {
-              results = results,
-              entry_maker = function(item)
-                return {
-                  value = item,
-                  display = string.format(
-                    "%s in %s (%s)",
-                    item.info.module,
-                    item.package,
-                    item.version
-                  ),
-                  ordinal = item.info.module, -- For sorting
-                }
+        -- Convert results for Snacks picker
+        local formatted_items = {}
+        for _, item in ipairs(results) do
+          local display = string.format(
+            "%s in %s (%s)",
+            item.info.module,
+            item.package,
+            item.version
+          )
+          table.insert(formatted_items, {
+            text = display,
+            value = item,
+          })
+        end
+
+        -- Use Snacks picker to display the results
+        require("snacks").picker({
+          name = "Select Module to Import or Open Link",
+          items = formatted_items,
+          format = function(item) return item.text end,
+          confirm = function(picker, item)
+            picker:close()
+            handle_enter_key(item)
+          end,
+          actions = {
+            import = {
+              key = "<C-i>",
+              desc = "Import selected item",
+              action = function(picker, item)
+                picker:close()
+                handle_ctrl_i(at_cursor, item)
               end,
             },
-            sorter = require("telescope.config").values.generic_sorter {}, -- to have fzf input
-            attach_mappings = function(_, map)
-              map("i", "<CR>", function(prompt_bufnr) handle_enter_key(prompt_bufnr) end)
-              map("i", "<C-i>", function(prompt_bufnr) handle_ctrl_i(at_cursor, prompt_bufnr) end)
-              return true
-            end,
-          })
-          :find()
+          },
+        })
       end)
     end
   )
